@@ -731,5 +731,140 @@ def freeze():
     click.echo("silo: future silo commits blocked (silo config set frozen false to unlock)")
 
 
+@cli.command()
+def unfreeze():
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    cfg = get_config(silo_dir)
+    cfg.set("frozen", "false")
+    save_config(silo_dir, cfg)
+    log_action(silo_dir, "unfreeze", "silo commits unlocked")
+    click.echo("silo: commits unlocked")
+
+
+@cli.group("import")
+def import_cmd():
+    pass
+
+
+@import_cmd.command()
+@click.argument("git_dir")
+def git(git_dir):
+    import subprocess
+    import tempfile
+
+    git_path = Path(git_dir).resolve()
+    if not (git_path / ".git").exists():
+        click.echo(f"silo: not a git repository: {git_path}", err=True)
+        return
+
+    silo_dir = git_path / ".silo"
+    if silo_dir.exists():
+        click.echo(f"silo: already has a silo repo: {git_path}", err=True)
+        return
+
+    conn = init_db(silo_dir)
+    conn.close()
+    log_action(silo_dir, "import", f"from git: {git_path}")
+    click.echo(f"silo: importing {git_path} ...")
+
+    branch_result = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=str(git_path), capture_output=True, text=True
+    )
+    orig_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else "master"
+
+    result = subprocess.run(
+        ["git", "log", "--first-parent", "--format=%H%n%ct%n%an <%ae>%n%s%n==SILO==="],
+        cwd=str(git_path), capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        click.echo(f"silo: git log failed: {result.stderr}", err=True)
+        return
+
+    entries = result.stdout.strip().split("==SILO===")
+    entries = [e.strip() for e in entries if e.strip()]
+    entries.reverse()
+    total = len(entries)
+    cfg = get_config(silo_dir)
+
+    for i, entry in enumerate(entries):
+        lines = entry.strip().split("\n")
+        if len(lines) < 4:
+            continue
+        h = lines[0]
+        ts = float(lines[1])
+        author = lines[2]
+        msg = "\n".join(lines[3:])
+
+        subprocess.run(["git", "checkout", "--force", h],
+                      cwd=str(git_path), capture_output=True)
+        tree = scan_tree(git_path)
+        snapshot_to_objects(silo_dir, git_path, tree)
+
+        parent = None
+        if i > 0:
+            prev_entry = entries[i - 1].strip().split("\n")
+            parent = prev_entry[0]
+
+        commit_data = {
+            "tree": tree,
+            "parent": parent,
+            "author": author,
+            "message": msg,
+            "co_authors": [],
+            "timestamp": ts,
+            "branch": "main",
+        }
+        raw = json.dumps(commit_data, sort_keys=True).encode()
+        ch = hashlib.sha256(raw).hexdigest()
+        c = Commit(hash=ch, **commit_data)
+        save_commit(silo_dir, c)
+        set_head(silo_dir, ch, "main")
+        conn = get_db(silo_dir)
+        update_index(conn, tree)
+        conn.close()
+        log_action(silo_dir, "commit", f"[{ch[:8]}] {msg}")
+
+        click.echo(f"  [{i+1}/{total}] {ch[:8]} {msg[:50]}")
+
+    subprocess.run(["git", "checkout", orig_branch],
+                  cwd=str(git_path), capture_output=True)
+    click.echo(f"silo: imported {total} commits")
+
+
+@import_cmd.command()
+@click.argument("repo")
+def gh(repo):
+    import subprocess
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(suffix="_silo_import"))
+    url = repo
+    if "/" in repo and not repo.startswith("http"):
+        url = f"https://github.com/{repo}.git"
+
+    click.echo(f"silo: cloning {url} ...")
+    result = subprocess.run(
+        ["git", "clone", "--quiet", url, str(tmp / "repo")],
+        capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        click.echo(f"silo: clone failed: {result.stderr}", err=True)
+        import shutil
+        shutil.rmtree(str(tmp))
+        return
+
+    click.echo("silo: importing cloned repo ...")
+    ctx = click.get_current_context()
+    ctx.invoke(git, git_dir=str(tmp / "repo"))
+
+    import shutil
+    shutil.rmtree(str(tmp))
+
+
 def main():
     cli()
