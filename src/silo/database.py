@@ -84,9 +84,10 @@ def list_commits(silo_dir):
     if not commits_dir.exists():
         return []
     commits = []
-    for f in sorted(commits_dir.glob("*.json"), reverse=True):
+    for f in commits_dir.glob("*.json"):
         c = Commit.from_json(f.read_text())
         commits.append(c)
+    commits.sort(key=lambda c: c.timestamp, reverse=True)
     return commits
 
 
