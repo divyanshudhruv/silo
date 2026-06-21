@@ -1,20 +1,40 @@
 import click
+import questionary
 
-from ..engine import scan_tree, diff_trees, load_blob
+from ..engine import scan_tree, load_blob
 from ..database import (
-    get_db, clear_index, load_commit,
+    get_db, clear_index, update_index, load_commit, resolve_ref,
     get_head, set_head, get_branch, set_branch, list_branches,
-    log_action,
+    delete_branch, rename_branch, log_action,
 )
 from ..theme import ok, err, t
 from ._common import require_silo
 
 
-@click.command(help="Create or list branches")
+@click.command(help="Create, list, delete, or rename branches")
 @click.argument("name", required=False)
-def branch(name):
+@click.option("--delete", "-d", "del_name", help="Delete a branch")
+@click.option("--move", "-m", nargs=2, metavar="OLD NEW", help="Rename a branch")
+def branch(name, del_name, move):
     silo_dir = require_silo()
     if not silo_dir:
+        return
+
+    if del_name:
+        if delete_branch(silo_dir, del_name):
+            log_action(silo_dir, "branch", f"deleted '{del_name}'")
+            ok(f"deleted branch '{t(del_name, 'branch')}'")
+        else:
+            err(f"cannot delete '{del_name}' (not found or current branch)")
+        return
+
+    if move:
+        old, new = move
+        if rename_branch(silo_dir, old, new):
+            log_action(silo_dir, "branch", f"renamed '{old}' -> '{new}'")
+            ok(f"renamed branch '{t(old, 'branch')}' -> '{t(new, 'branch')}'")
+        else:
+            err(f"cannot rename '{old}' (not found or '{new}' exists)")
         return
 
     if not name or name == "list":
@@ -40,13 +60,24 @@ def branch(name):
 
 
 @click.command(help="Switch to another branch")
-@click.argument("name")
+@click.argument("name", required=False)
 def switch(name):
     silo_dir = require_silo()
     if not silo_dir:
         return
 
-    old_hash, current_branch = get_head(silo_dir)
+    branches = list_branches(silo_dir)
+    _, current_branch = get_head(silo_dir)
+
+    if not name:
+        choices = [b for b in branches if b != current_branch]
+        if not choices:
+            ok("only one branch exists")
+            return
+        name = questionary.select("Switch to branch:", choices=choices).ask()
+        if not name:
+            return
+
     if name == current_branch:
         ok(f"already on '{t(name, 'branch')}'")
         return
@@ -70,49 +101,9 @@ def switch(name):
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_bytes(data)
 
-    if old_hash:
-        old = load_commit(silo_dir, old_hash)
-        if old:
-            for rel_path in old.tree:
-                if rel_path not in commit.tree:
-                    f = project_dir / rel_path
-                    if f.exists():
-                        f.unlink()
-
-    conn = get_db(silo_dir)
-    clear_index(conn)
-    conn.close()
-    set_head(silo_dir, commit_hash, name)
-    log_action(silo_dir, "switch", f"to '{name}'")
-    ok(f"switched to branch '{t(name, 'branch')}'")
-
-
-@click.command(help="Restore working tree to a previous commit")
-@click.argument("commit_hash")
-def revert(commit_hash):
-    silo_dir = require_silo()
-    if not silo_dir:
-        return
-
-    c = load_commit(silo_dir, commit_hash)
-    if not c:
-        err(f"commit '{commit_hash}' not found")
-        return
-
-    project_dir = silo_dir.parent
-    current = scan_tree(project_dir)
-
-    for rel_path, h in c.tree.items():
-        data = load_blob(silo_dir, h)
-        if data is None:
-            err(f"blob {h[:8]} missing for '{rel_path}'")
-            continue
-        f = project_dir / rel_path
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_bytes(data)
-
-    for rel_path in current:
-        if rel_path not in c.tree:
+    current_tree = scan_tree(project_dir)
+    for rel_path in current_tree:
+        if rel_path not in commit.tree:
             f = project_dir / rel_path
             if f.exists():
                 f.unlink()
@@ -120,5 +111,68 @@ def revert(commit_hash):
     conn = get_db(silo_dir)
     clear_index(conn)
     conn.close()
-    log_action(silo_dir, "revert", f"to {c.hash[:8]}")
-    ok(f"reverted to {t(c.hash[:8], 'hash')} ({c.message})")
+
+    set_head(silo_dir, commit_hash, name)
+    log_action(silo_dir, "switch", f"to '{name}'")
+    ok(f"switched to branch '{t(name, 'branch')}'")
+
+
+@click.command(help="Move HEAD to a commit and delete all commits after it")
+@click.argument("commit_hash", required=False)
+def reset(commit_hash):
+    silo_dir = require_silo()
+    if not silo_dir:
+        return
+
+    from ..database import list_commits, save_commit
+    commits = list_commits(silo_dir)
+    if not commits:
+        err("no commits yet")
+        return
+
+    if commit_hash:
+        resolved = resolve_ref(silo_dir, commit_hash)
+        if resolved:
+            commit_hash = resolved
+
+    if not commit_hash:
+        choices = [f"{c.hash[:8]}  {c.message[:60]}" for c in commits]
+        picked = questionary.select("Reset to commit:", choices=choices).ask()
+        if not picked:
+            return
+        commit_hash = picked.split()[0]
+
+    target = load_commit(silo_dir, commit_hash)
+    if not target:
+        err(f"commit '{commit_hash}' not found")
+        return
+
+    head_hash, branch = get_head(silo_dir)
+    if not head_hash:
+        err("no HEAD commit")
+        return
+
+    target_idx = None
+    for i, c in enumerate(commits):
+        if c.hash == commit_hash:
+            target_idx = i
+            break
+
+    to_delete = [c.hash for c in commits[:target_idx]]
+
+    for h in to_delete:
+        p = silo_dir / "commits" / f"{h}.json"
+        if p.exists():
+            p.unlink()
+
+    set_head(silo_dir, commit_hash, branch)
+
+    conn = get_db(silo_dir)
+    clear_index(conn)
+    update_index(conn, target.tree)
+    conn.close()
+
+    log_action(silo_dir, "reset", f"to {target.hash[:8]}, dropped {len(to_delete)} commits")
+    ok(f"reset to {t(target.hash[:8], 'hash')} ({target.message})")
+    if to_delete:
+        click.echo(f"  removed {len(to_delete)} commit(s) after it")

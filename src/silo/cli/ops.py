@@ -87,39 +87,6 @@ def cleanup():
     ok(f"cleaned up {freed} orphaned objects")
 
 
-@click.command(help="Show commit history in a table")
-def grid():
-    silo_dir = require_silo()
-    if not silo_dir:
-        return
-
-    commits = list_commits(silo_dir)
-    if not commits:
-        ok("no commits yet")
-        return
-
-    try:
-        from rich.console import Console
-        from rich.table import Table
-        import sys
-        console = Console(file=sys.stderr)
-        table = Table(title="Commit History")
-        table.add_column("Hash", style="cyan")
-        table.add_column("Branch", style="green")
-        table.add_column("Date", style="yellow")
-        table.add_column("Message")
-        for c in commits[:20]:
-            ts = readable_time(c.timestamp)
-            msg = c.message[:60] + "..." if len(c.message) > 60 else c.message
-            table.add_row(c.hash[:8], c.branch or "?", ts, msg)
-        console.print(table)
-    except Exception:
-        for c in commits[:20]:
-            b = c.branch or "?"
-            tss = readable_time(c.timestamp)
-            click.echo(f"{t(c.hash[:8], 'hash')} | {t(b, 'branch')} | {tss} | {c.message}")
-
-
 @click.command(help="Block future silo commits")
 def freeze():
     silo_dir = require_silo()

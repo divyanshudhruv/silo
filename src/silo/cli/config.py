@@ -2,10 +2,10 @@ import click
 
 from ..database import get_config, save_config, log_action
 from ..theme import ok, err, t
-from ._common import require_silo
+from ._common import require_silo, ColorGroup
 
 
-@click.group(help="View and edit configuration")
+@click.group(cls=ColorGroup, help="View and edit configuration")
 def config():
     pass
 

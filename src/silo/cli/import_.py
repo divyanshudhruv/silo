@@ -1,29 +1,34 @@
 import json
-import time
 import hashlib
 import subprocess
 from pathlib import Path
 
 import click
+import questionary
 
 from ..engine import scan_tree, snapshot_to_objects
 from ..database import (
     init_db, get_db, update_index,
-    save_commit, load_commit, set_head, log_action, get_config,
+    save_commit, set_head, log_action, get_config, save_config,
 )
 from ..models import Commit
 from ..theme import ok, err, t
-from ._common import require_silo
+from ._common import require_silo, ColorGroup
 
 
-@click.group("import", help="Import history from Git or GitHub")
+@click.group("import", cls=ColorGroup, help="Import history from Git or GitHub")
 def import_cmd():
     pass
 
 
 @import_cmd.command("git", help="Import commits from a Git repository")
-@click.argument("git_dir")
+@click.argument("git_dir", required=False)
 def git_cmd(git_dir):
+    if not git_dir:
+        git_dir = questionary.text("Path to Git repository:").ask()
+        if not git_dir:
+            return
+
     git_path = Path(git_dir).resolve()
     if not (git_path / ".git").exists():
         err(f"not a git repository: {git_path}")
@@ -59,6 +64,8 @@ def git_cmd(git_dir):
     total = len(entries)
     cfg = get_config(silo_dir)
 
+    last_author = None
+
     for i, entry in enumerate(entries):
         lines = entry.strip().split("\n")
         if len(lines) < 4:
@@ -67,6 +74,7 @@ def git_cmd(git_dir):
         ts = float(lines[1])
         author = lines[2]
         msg = "\n".join(lines[3:])
+        last_author = author
 
         subprocess.run(["git", "checkout", "--force", h_in],
                       cwd=str(git_path), capture_output=True)
@@ -101,13 +109,28 @@ def git_cmd(git_dir):
 
     subprocess.run(["git", "checkout", orig_branch],
                   cwd=str(git_path), capture_output=True)
-    ok(f"imported {total} commits")
+
+    if last_author and "@" in last_author:
+        import re
+        m = re.match(r"(.+)\s+<([^>]+)>", last_author)
+        if m:
+            cfg.set("name", m.group(1))
+            cfg.set("email", m.group(2))
+            save_config(silo_dir, cfg)
+            click.echo(f"  config: {t('name', 'file')}={t(cfg.get('name'), 'modified')}, {t('email', 'file')}={t(cfg.get('email'), 'modified')}")
+
+    ok(f"imported {t(str(total), 'hash')} commits from {t(str(git_path), 'file')}")
 
 
 @import_cmd.command(help="Clone a GitHub repo and import its history")
-@click.argument("repo")
+@click.argument("repo", required=False)
 def gh_cmd(repo):
     import tempfile
+
+    if not repo:
+        repo = questionary.text("GitHub repo (user/repo or URL):").ask()
+        if not repo:
+            return
 
     tmp = Path(tempfile.mkdtemp(suffix="_silo_import"))
     url = repo

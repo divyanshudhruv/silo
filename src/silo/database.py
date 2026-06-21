@@ -72,6 +72,30 @@ def save_commit(silo_dir, commit):
     p.write_text(commit.to_json())
 
 
+def resolve_ref(silo_dir, ref):
+    if not ref:
+        return None
+    if ref == "HEAD":
+        h, _ = get_head(silo_dir)
+        return h
+    if ref.startswith("HEAD~"):
+        try:
+            n = int(ref[5:]) if len(ref) > 5 else 1
+        except ValueError:
+            return None
+        h, _ = get_head(silo_dir)
+        for _ in range(n):
+            c = load_commit(silo_dir, h)
+            if not c or not c.parent:
+                return None
+            h = c.parent
+        return h
+    c = find_commit(silo_dir, ref)
+    if c:
+        return c.hash
+    return None
+
+
 def find_commit(silo_dir, h):
     commits_dir = silo_dir / "commits"
     if not commits_dir.exists():
@@ -143,6 +167,29 @@ def list_branches(silo_dir):
     return sorted(b.name for b in branches_dir.iterdir() if b.is_file())
 
 
+def delete_branch(silo_dir, name):
+    p = silo_dir / "branches" / name
+    if not p.exists():
+        return False
+    _, cur = get_head(silo_dir)
+    if name == cur:
+        return False
+    p.unlink()
+    return True
+
+
+def rename_branch(silo_dir, old_name, new_name):
+    old_p = silo_dir / "branches" / old_name
+    new_p = silo_dir / "branches" / new_name
+    if not old_p.exists() or new_p.exists():
+        return False
+    old_p.rename(new_p)
+    _, cur = get_head(silo_dir)
+    if old_name == cur:
+        set_head(silo_dir, new_p.read_text().strip(), new_name)
+    return True
+
+
 def log_action(silo_dir, action, msg=""):
     log_dir = silo_dir / "logs"
     ensure_dirs(log_dir)
@@ -171,6 +218,25 @@ def list_tags(silo_dir):
     return sorted(t.name for t in tags_dir.iterdir() if t.is_file())
 
 
+def delete_tag(silo_dir, name):
+    p = silo_dir / "tags" / name
+    if p.exists():
+        p.unlink()
+        return True
+    return False
+
+
+def rename_tag(silo_dir, old_name, new_name):
+    old_p = silo_dir / "tags" / old_name
+    new_p = silo_dir / "tags" / new_name
+    if not old_p.exists():
+        return False
+    if new_p.exists():
+        return False
+    old_p.rename(new_p)
+    return True
+
+
 def save_note(silo_dir, note):
     notes_dir = silo_dir / "notes"
     ensure_dirs(notes_dir)
@@ -184,6 +250,22 @@ def load_note(silo_dir, commit_hash):
     if p.exists():
         return p.read_text().strip()
     return None
+
+
+def delete_note(silo_dir, commit_hash):
+    p = silo_dir / "notes" / f"{commit_hash}.txt"
+    if p.exists():
+        p.unlink()
+        return True
+    return False
+
+
+def update_note(silo_dir, commit_hash, text):
+    notes_dir = silo_dir / "notes"
+    ensure_dirs(notes_dir)
+    p = notes_dir / f"{commit_hash}.txt"
+    p.write_text(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {text}\n")
+    return True
 
 
 def get_config(silo_dir):

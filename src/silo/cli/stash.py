@@ -1,15 +1,23 @@
 import shutil
 
 import click
+import questionary
 
 from ..engine import scan_tree, diff_trees
 from ..database import get_head, load_commit, log_action
 from ..utils import ensure_dirs
 from ..theme import ok, err, t
-from ._common import require_silo
+from ._common import require_silo, ColorGroup
 
 
-@click.group(help="Manage stashed changes")
+def _stash_names(silo_dir):
+    stash_dir = silo_dir / "stash"
+    if not stash_dir.exists():
+        return []
+    return sorted(d.name for d in stash_dir.iterdir() if d.is_dir())
+
+
+@click.group(cls=ColorGroup, help="Manage stashed changes")
 def stash():
     pass
 
@@ -82,11 +90,21 @@ def stash_put(name):
 
 
 @stash.command("revert", help="Restore a stash and remove it")
-@click.argument("name")
+@click.argument("name", required=False)
 def stash_revert(name):
     silo_dir = require_silo()
     if not silo_dir:
         return
+
+    names = _stash_names(silo_dir)
+    if not names:
+        err("no stashes found")
+        return
+
+    if not name:
+        name = questionary.select("Revert stash:", choices=names).ask()
+        if not name:
+            return
 
     stash_dir = silo_dir / "stash" / name
     if not stash_dir.exists():
@@ -94,9 +112,8 @@ def stash_revert(name):
         return
 
     project_dir = silo_dir.parent
-    for f in stash_dir.rglob("*"):
-        if not f.is_file():
-            continue
+    files = [f for f in stash_dir.rglob("*") if f.is_file()]
+    for f in files:
         rel = f.relative_to(stash_dir)
         dst = project_dir / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
@@ -104,15 +121,25 @@ def stash_revert(name):
 
     shutil.rmtree(stash_dir)
     log_action(silo_dir, "stash", f"reverted '{name}'")
-    ok(f"reverted stash '{t(name, 'file')}'")
+    ok(f"restored stash '{t(name, 'file')}' ({len(files)} files)")
 
 
 @stash.command("drop", help="Delete a stash without restoring")
-@click.argument("name")
+@click.argument("name", required=False)
 def stash_drop(name):
     silo_dir = require_silo()
     if not silo_dir:
         return
+
+    names = _stash_names(silo_dir)
+    if not names:
+        err("no stashes found")
+        return
+
+    if not name:
+        name = questionary.select("Drop stash:", choices=names).ask()
+        if not name:
+            return
 
     stash_dir = silo_dir / "stash" / name
     if not stash_dir.exists():
@@ -130,12 +157,8 @@ def stash_list():
     if not silo_dir:
         return
 
-    stash_dir = silo_dir / "stash"
-    if not stash_dir.exists():
-        return
-
-    names = sorted(d.name for d in stash_dir.iterdir() if d.is_dir())
+    names = _stash_names(silo_dir)
     if names:
-        click.echo("\n".join(names))
+        click.echo("\n".join(t(n, "file") for n in names))
     else:
         ok("no stashes")
