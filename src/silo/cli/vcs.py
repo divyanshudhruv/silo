@@ -1,7 +1,7 @@
 import click
 import questionary
 
-from ..engine import scan_tree, load_blob
+from ..engine import load_blob
 from ..database import (
     get_db, clear_index, update_index, load_commit, resolve_ref,
     get_head, set_head, get_branch, set_branch, list_branches,
@@ -101,12 +101,12 @@ def switch(name):
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_bytes(data)
 
-    current_tree = scan_tree(project_dir)
-    for rel_path in current_tree:
-        if rel_path not in commit.tree:
-            f = project_dir / rel_path
-            if f.exists():
-                f.unlink()
+    for f in project_dir.rglob("*"):
+        if not f.is_file():
+            continue
+        rel = str(f.relative_to(project_dir).as_posix())
+        if rel not in commit.tree:
+            f.unlink()
 
     conn = get_db(silo_dir)
     clear_index(conn)

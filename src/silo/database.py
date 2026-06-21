@@ -25,6 +25,15 @@ def init_db(silo_dir):
             mtime REAL NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS commits_index (
+            hash TEXT PRIMARY KEY,
+            message TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            author TEXT NOT NULL,
+            branch TEXT NOT NULL
+        )
+    """)
     conn.commit()
 
     if not (silo_dir / "config.json").exists():
@@ -70,6 +79,16 @@ def clear_index(conn):
 def save_commit(silo_dir, commit):
     p = silo_dir / "commits" / f"{commit.hash}.json"
     p.write_text(commit.to_json())
+    try:
+        conn = sqlite3.connect(str(silo_dir / "index.db"))
+        conn.execute(
+            "INSERT OR REPLACE INTO commits_index (hash, message, timestamp, author, branch) VALUES (?, ?, ?, ?, ?)",
+            (commit.hash, commit.message, commit.timestamp, commit.author, commit.branch or ""),
+        )
+        conn.commit()
+        conn.close()
+    except sqlite3.OperationalError:
+        pass
 
 
 def resolve_ref(silo_dir, ref):
@@ -97,6 +116,18 @@ def resolve_ref(silo_dir, ref):
 
 
 def find_commit(silo_dir, h):
+    try:
+        conn = sqlite3.connect(str(silo_dir / "index.db"))
+        cur = conn.execute(
+            "SELECT hash FROM commits_index WHERE hash LIKE ?",
+            (h + "%",),
+        )
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            return load_commit(silo_dir, row[0])
+    except sqlite3.OperationalError:
+        pass
     commits_dir = silo_dir / "commits"
     if not commits_dir.exists():
         return None
@@ -123,6 +154,20 @@ def list_commits(silo_dir):
         commits.append(c)
     commits.sort(key=lambda c: c.timestamp, reverse=True)
     return commits
+
+
+def list_commits_meta(silo_dir):
+    try:
+        conn = sqlite3.connect(str(silo_dir / "index.db"))
+        cur = conn.execute("SELECT hash, message, timestamp, author, branch FROM commits_index ORDER BY timestamp DESC")
+        rows = cur.fetchall()
+        conn.close()
+        if rows:
+            from .models import Commit
+            return [Commit(hash=r[0], message=r[1], timestamp=r[2], author=r[3], branch=r[4], tree={}, parent=None) for r in rows]
+    except sqlite3.OperationalError:
+        pass
+    return list_commits(silo_dir)
 
 
 def get_head(silo_dir):
@@ -241,7 +286,7 @@ def save_note(silo_dir, note):
     notes_dir = silo_dir / "notes"
     ensure_dirs(notes_dir)
     p = notes_dir / f"{note.commit_hash}.txt"
-    with open(p, "a") as f:
+    with open(p, "w") as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {note.text}\n")
 
 

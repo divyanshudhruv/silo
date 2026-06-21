@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 import questionary
 
-from ..engine import scan_tree, snapshot_to_objects
+from ..engine import scan_tree_with_content, snapshot_to_objects
 from ..database import (
     init_db, get_db, update_index,
     save_commit, set_head, log_action, get_config, save_config,
@@ -78,8 +78,8 @@ def git_cmd(git_dir):
 
         subprocess.run(["git", "checkout", "--force", h_in],
                       cwd=str(git_path), capture_output=True)
-        tree = scan_tree(git_path)
-        snapshot_to_objects(silo_dir, git_path, tree)
+        tree, contents = scan_tree_with_content(git_path)
+        snapshot_to_objects(silo_dir, tree, contents)
 
         parent = None
         if i > 0:

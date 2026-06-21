@@ -5,7 +5,7 @@ import questionary
 
 from ..engine import scan_tree, diff_trees
 from ..database import get_head, load_commit, log_action
-from ..utils import ensure_dirs
+from ..utils import ensure_dirs, load_ignore_patterns
 from ..theme import ok, err, t
 from ._common import require_silo, ColorGroup
 
@@ -42,7 +42,8 @@ def stash_this(name):
         if c:
             parent_tree = c.tree
 
-    current = scan_tree(project_dir)
+    ignore = load_ignore_patterns(silo_dir)
+    current = scan_tree(project_dir, ignore)
     _, modified, _ = diff_trees(parent_tree, current)
 
     if not modified:
@@ -75,7 +76,8 @@ def stash_put(name):
         err(f"stash '{name}' already exists")
         return
 
-    current = scan_tree(project_dir)
+    ignore = load_ignore_patterns(silo_dir)
+    current = scan_tree(project_dir, ignore)
     ensure_dirs(stash_dir)
     for rel_path, h in current.items():
         src = project_dir / rel_path

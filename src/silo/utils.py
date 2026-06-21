@@ -1,13 +1,33 @@
 import os
 import json
 import hashlib
+import fnmatch
 from pathlib import Path
 
 
-def walk_files(dir_path):
+def _try_read(path):
+    raw = path.read_bytes()
+    if raw[:2] == b"\xff\xfe":
+        return raw.decode("utf-16-le")
+    if raw[:3] == b"\xef\xbb\xbf":
+        return raw.decode("utf-8-sig")
+    return raw.decode("utf-8")
+
+
+def load_ignore_patterns(silo_dir):
+    p = silo_dir.parent / ".siloignore"
+    patterns = []
+    if p.exists():
+        for line in _try_read(p).splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                patterns.append(line)
+    return patterns
+
+
+def walk_files(dir_path, ignore_patterns=None):
     p = Path(dir_path)
-    files = []
-    for f in sorted(p.rglob("*")):
+    for f in p.rglob("*"):
         if not f.is_file():
             continue
         rel = f.relative_to(p)
@@ -20,8 +40,19 @@ def walk_files(dir_path):
             continue
         if f.suffix == ".pyc":
             continue
-        files.append(f)
-    return files
+        if ignore_patterns:
+            rel_str = str(rel.as_posix())
+            skip = False
+            for pat in ignore_patterns:
+                if pat.endswith("/") and rel_str.startswith(pat):
+                    skip = True
+                    break
+                if fnmatch.fnmatch(rel_str, pat) or fnmatch.fnmatch(Path(rel_str).name, pat):
+                    skip = True
+                    break
+            if skip:
+                continue
+        yield f
 
 
 def hash_file(path):

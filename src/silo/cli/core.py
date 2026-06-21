@@ -6,14 +6,14 @@ from pathlib import Path
 import click
 import questionary
 
-from ..engine import scan_tree, snapshot_to_objects, diff_trees
+from ..engine import scan_tree, scan_tree_with_content, snapshot_to_objects, diff_trees, load_blob
 from ..database import (
     init_db, get_db, update_index, get_index, clear_index,
-    save_commit, load_commit, list_commits, resolve_ref,
-    get_head, set_head, log_action, get_config,
+    save_commit, load_commit, list_commits, list_commits_meta,
+    resolve_ref, get_head, set_head, log_action, get_config,
 )
 from ..models import Commit, Tag
-from ..utils import ensure_dirs, readable_time
+from ..utils import ensure_dirs, readable_time, load_ignore_patterns
 from ..theme import ok, err, t
 from ._common import require_silo
 
@@ -41,6 +41,7 @@ def init(directory):
     log_action(silo_dir, "init", f"dir={d}")
     ok(f"initialized empty repository in {silo_dir}")
     click.echo(f"  {t('config.json', 'file')} and {t('HEAD', 'file')} are safe to commit to git")
+    click.echo(f"  create {t('.siloignore', 'file')} in project root to exclude patterns")
     click.echo(f"  run {t('silo commit', 'highlight')} to create the first snapshot")
 
 
@@ -66,7 +67,8 @@ def commit(message, co):
         if parent_commit:
             parent_tree = parent_commit.tree
 
-    current_tree = scan_tree(project_dir)
+    ignore = load_ignore_patterns(silo_dir)
+    current_tree, contents = scan_tree_with_content(project_dir, ignore)
     added, modified, removed = diff_trees(parent_tree, current_tree)
 
     if not added and not modified and not removed:
@@ -79,7 +81,7 @@ def commit(message, co):
             err("aborted: empty message")
             return
 
-    snapshot_to_objects(silo_dir, project_dir, current_tree)
+    snapshot_to_objects(silo_dir, current_tree, contents)
 
     commit_data = {
         "tree": current_tree,
@@ -127,7 +129,8 @@ def status(ignored):
     index = get_index(conn)
     conn.close()
 
-    current = scan_tree(project_dir)
+    ignore = load_ignore_patterns(silo_dir)
+    current = scan_tree(project_dir, ignore)
     added, modified, removed = diff_trees(index, current)
 
     if not added and not modified and not removed:
@@ -151,7 +154,11 @@ def status(ignored):
 @click.command(help="Show commit history")
 @click.option("--oneline", is_flag=True, help="Compact format")
 @click.option("--graph", is_flag=True, help="ASCII graph with colors")
-def log(oneline, graph):
+@click.option("--author", help="Filter by author (partial match)")
+@click.option("--since", help="Show commits after date (YYYY-MM-DD)")
+@click.option("--grep", help="Filter by message (case-insensitive)")
+@click.option("-n", type=int, help="Limit number of commits")
+def log(oneline, graph, author, since, grep, n):
     silo_dir = require_silo()
     if not silo_dir:
         return
@@ -161,12 +168,33 @@ def log(oneline, graph):
         ok("no commits yet")
         return
 
-    commits = list_commits(silo_dir)
+    commits = list_commits_meta(silo_dir) if oneline else list_commits(silo_dir)
     if not commits:
         ok("no commits found")
         return
 
-    for i, c in enumerate(commits):
+    if author:
+        author_lower = author.lower()
+        commits = [c for c in commits if author_lower in c.author.lower()]
+    if since:
+        try:
+            from datetime import datetime
+            since_ts = datetime.strptime(since, "%Y-%m-%d").timestamp()
+            commits = [c for c in commits if c.timestamp >= since_ts]
+        except ValueError:
+            err(f"invalid date format: {since} (use YYYY-MM-DD)")
+            return
+    if grep:
+        grep_lower = grep.lower()
+        commits = [c for c in commits if grep_lower in c.message.lower()]
+    if n is not None and n > 0:
+        commits = commits[:n]
+
+    if not commits:
+        ok("no matching commits")
+        return
+
+    for c in commits:
         ts = readable_time(c.timestamp)
         if oneline:
             click.echo(f"{t(c.hash[:8], 'hash')} {c.message}")
@@ -194,10 +222,13 @@ def log(oneline, graph):
 @click.command(help="Show differences between commits or working tree")
 @click.argument("commit1", required=False)
 @click.argument("commit2", required=False)
-def diff(commit1, commit2):
+@click.option("--stat", is_flag=True, help="Show file stats only")
+def diff(commit1, commit2, stat):
     silo_dir = require_silo()
     if not silo_dir:
         return
+
+    from difflib import unified_diff
 
     project_dir = silo_dir.parent
     head_hash, _ = get_head(silo_dir)
@@ -234,7 +265,8 @@ def diff(commit1, commit2):
             ok("no commits yet")
             return
         head = load_commit(silo_dir, head_hash)
-        current = scan_tree(project_dir)
+        ignore = load_ignore_patterns(silo_dir)
+        current = scan_tree(project_dir, ignore)
         tree1, tree2 = head.tree, current
 
     a, m, r = diff_trees(tree1, tree2)
@@ -248,10 +280,40 @@ def diff(commit1, commit2):
 
     for f in sorted(a):
         click.echo(f"  {t('+', 'added')} {f}")
+        if not stat:
+            data2 = load_blob(silo_dir, a[f])
+            if data2:
+                click.echo(f"  {t('@@ added', 'added')}")
+                for line in data2.decode().splitlines():
+                    click.echo(f"  {t('+' + line, 'added')}")
     for f in sorted(m):
         click.echo(f"  {t('~', 'modified')} {f}")
+        if not stat:
+            data1 = load_blob(silo_dir, m[f][0]) if m[f][0] else b""
+            data2 = load_blob(silo_dir, m[f][1]) if m[f][1] else b""
+            if data1 is not None and data2 is not None:
+                try:
+                    lines1 = data1.decode().splitlines(keepends=True)
+                    lines2 = data2.decode().splitlines(keepends=True)
+                    for line in unified_diff(lines1, lines2, fromfile=f, tofile=f, lineterm=""):
+                        if line.startswith("---") or line.startswith("+++"):
+                            click.echo(f"  {t(line, 'dim')}")
+                        elif line.startswith("@@"):
+                            click.echo(f"  {t(line, 'highlight')}")
+                        elif line.startswith("+"):
+                            click.echo(f"  {t(line, 'added')}")
+                        elif line.startswith("-"):
+                            click.echo(f"  {t(line, 'removed')}")
+                except UnicodeDecodeError:
+                    click.echo(f"  {t('  (binary file)', 'dim')}")
     for f in sorted(r):
         click.echo(f"  {t('-', 'removed')} {f}")
+        if not stat:
+            data1 = load_blob(silo_dir, r[f])
+            if data1:
+                click.echo(f"  {t('@@ removed', 'removed')}")
+                for line in data1.decode().splitlines():
+                    click.echo(f"  {t('-' + line, 'removed')}")
 
 
 @click.command(help="Edit a commit message")
@@ -332,3 +394,55 @@ def amend(message, commit_hash):
 
     log_action(silo_dir, "amend", f"[{new_hash[:8]}] {message}")
     ok(f"amended {t(commit_hash[:8], 'hash')} as {t(new_hash[:8], 'hash')} ({message})")
+
+
+@click.command(help="Show details of a commit")
+@click.argument("commit_hash", required=False)
+def show(commit_hash):
+    silo_dir = require_silo()
+    if not silo_dir:
+        return
+
+    if not commit_hash:
+        commit_hash, _ = get_head(silo_dir)
+        if not commit_hash:
+            err("no commits yet")
+            return
+    else:
+        resolved = resolve_ref(silo_dir, commit_hash)
+        if resolved:
+            commit_hash = resolved
+
+    c = load_commit(silo_dir, commit_hash)
+    if not c:
+        err("commit not found")
+        return
+
+    from ..engine import diff_trees
+
+    parent_tree = {}
+    if c.parent:
+        pc = load_commit(silo_dir, c.parent)
+        if pc:
+            parent_tree = pc.tree
+
+    a, m, r = diff_trees(parent_tree, c.tree)
+    ts = readable_time(c.timestamp)
+
+    click.echo(f"commit {t(c.hash, 'hash')}")
+    click.echo(f"Author: {c.author}")
+    click.echo(f"Date:   {ts}")
+    if c.branch:
+        click.echo(f"Branch: {t(c.branch, 'branch')}")
+    click.echo("")
+    click.echo(f"    {c.message}")
+    if c.co_authors:
+        click.echo(f"    Co-authored-by: {', '.join(c.co_authors)}")
+    click.echo("")
+    click.echo(f"{len(a) + len(m) + len(r)} file(s) changed:")
+    for f in sorted(a):
+        click.echo(f"  {t('+', 'added')} {f}")
+    for f in sorted(m):
+        click.echo(f"  {t('~', 'modified')} {f}")
+    for f in sorted(r):
+        click.echo(f"  {t('-', 'removed')} {f}")

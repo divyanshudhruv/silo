@@ -1,16 +1,29 @@
 import os
 import zlib
+import hashlib
 from pathlib import Path
 
-from .utils import walk_files, hash_file, ensure_dirs
+from .utils import walk_files, hash_file, ensure_dirs, load_ignore_patterns
 
 
-def scan_tree(project_dir):
+def scan_tree(project_dir, ignore_patterns=None):
     tree = {}
-    for f in walk_files(project_dir):
+    for f in walk_files(project_dir, ignore_patterns):
         rel = str(f.relative_to(project_dir).as_posix())
         tree[rel] = hash_file(f)
     return tree
+
+
+def scan_tree_with_content(project_dir, ignore_patterns=None):
+    tree = {}
+    contents = {}
+    for f in walk_files(project_dir, ignore_patterns):
+        rel = str(f.relative_to(project_dir).as_posix())
+        data = f.read_bytes()
+        h = hashlib.sha256(data).hexdigest()
+        tree[rel] = h
+        contents[rel] = data
+    return tree, contents
 
 
 def store_blob(silo_dir, h, data):
@@ -29,13 +42,17 @@ def load_blob(silo_dir, h):
     return zlib.decompress(p.read_bytes())
 
 
-def snapshot_to_objects(silo_dir, project_dir, tree):
+def snapshot_to_objects(silo_dir, tree, content_map=None):
     stored = {}
     for rel_path, h in tree.items():
-        f = project_dir / rel_path
-        if not f.exists():
-            continue
-        store_blob(silo_dir, h, f.read_bytes())
+        if content_map and rel_path in content_map:
+            data = content_map[rel_path]
+        else:
+            p = silo_dir.parent / rel_path
+            if not p.exists():
+                continue
+            data = p.read_bytes()
+        store_blob(silo_dir, h, data)
         stored[rel_path] = h
     return stored
 
