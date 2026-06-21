@@ -55,7 +55,7 @@ silo log --oneline
 | `verify`   | —                                          | Check repository integrity                   |
 | `info`     | —                                          | Show repository statistics                   |
 | `bridge`   | `enable\|disable\|status`                  | Git post-commit hook for auto silo commits   |
-| `import`   | `git\|gh <path>`                           | Import history from Git or GitHub            |
+| `import`   | `git [<dir>]` / `gh <repo>`                | Import from Git (auto-detect) or clone+import |
 
 ## Directory structure
 

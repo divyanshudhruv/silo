@@ -4,7 +4,6 @@ import subprocess
 from pathlib import Path
 
 import click
-import questionary
 
 from ..engine import scan_tree_with_content, snapshot_to_objects
 from ..database import (
@@ -21,14 +20,9 @@ def import_cmd():
     pass
 
 
-@import_cmd.command("git", help="Import commits from a Git repository")
-@click.argument("git_dir", required=False)
+@import_cmd.command("git", help="Import commits from the current git repository")
+@click.argument("git_dir", required=False, default=".")
 def git_cmd(git_dir):
-    if not git_dir:
-        git_dir = questionary.text("Path to Git repository:").ask()
-        if not git_dir:
-            return
-
     git_path = Path(git_dir).resolve()
     if not (git_path / ".git").exists():
         err(f"not a git repository: {git_path}")
@@ -123,14 +117,9 @@ def git_cmd(git_dir):
 
 
 @import_cmd.command(help="Clone a GitHub repo and import its history")
-@click.argument("repo", required=False)
+@click.argument("repo")
 def gh_cmd(repo):
     import tempfile
-
-    if not repo:
-        repo = questionary.text("GitHub repo (user/repo or URL):").ask()
-        if not repo:
-            return
 
     tmp = Path(tempfile.mkdtemp(suffix="_silo_import"))
     url = repo
