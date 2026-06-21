@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+*.db
+.silo/
+.env
+*.egg-info/
+dist/
+build/
+.python-version
+
+# internal project files
+INSTRUCTION.md
+BUILD_PLAN.md
+*.plan.md
+TODO.md
