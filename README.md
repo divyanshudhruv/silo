@@ -32,32 +32,37 @@ silo log --oneline
 
 | Command    | Arguments                              | What it does                           |
 | ---------- | -------------------------------------- | -------------------------------------- |
-| `init`     | `[dir]`                                | Create a new silo repository           |
-| `commit`   | `"<msg>" [--co <name>]`                | Snapshot all files                     |
-| `status`   | `[--ignored]`                          | Show working tree changes              |
-| `log`      | `[--oneline] [--graph]`                | Show commit history                    |
-| `diff`     | `[<c1> [<c2>]]`                        | Compare commits or working tree        |
-| `branch`   | `<name>` / `list`                      | Create or list branches                |
-| `switch`   | `<name>`                               | Switch branches                        |
-| `stash`    | `this\|put\|revert\|drop\|list <name>` | Save/restore working changes           |
-| `tag`      | `add\|list [<name> [<commit>]]`        | Tag commits                            |
-| `note`     | `add\|list <commit> <text>`            | Annotate commits                       |
-| `revert`   | `<commit>`                             | Restore working tree to a commit       |
-| `config`   | `set\|list <key> <val>`                | View/edit configuration                |
-| `freeze`   | —                                      | Block further silo commits             |
-| `unfreeze` | —                                      | Unblock silo commits                   |
-| `snapshot` | —                                      | Create a tar.gz archive of the project |
-| `purge`    | —                                      | Erase all silo history                 |
-| `cleanup`  | —                                      | Remove orphaned objects                |
-| `grid`     | —                                      | Show commit history in a table         |
-| `import`   | `git\|gh <path>`                       | Import from Git or GitHub              |
+| `init`     | `[dir]`                                    | Create a new silo repository                  |
+| `commit`   | `"<msg>" [--co <name>]`                    | Snapshot all files                           |
+| `status`   | `[--ignored]`                              | Show working tree changes                    |
+| `log`      | `[--oneline] [--graph] [--author] [--since] [--grep] [-n]` | Show commit history with filters |
+| `diff`     | `[<c1> [<c2>]] [--stat]`                   | Compare commits or working tree (with content diff) |
+| `show`     | `[<ref>]`                                  | Show commit details and file changes         |
+| `branch`   | `<name>` / `list` / `-d` / `-m`            | Create, list, delete, or rename branches     |
+| `switch`   | `<name>`                                   | Switch branches                              |
+| `reset`    | `<ref>`                                    | Move HEAD and delete descendant commits      |
+| `amend`    | `"<msg>" [<ref>]`                          | Edit a commit message                        |
+| `stash`    | `this\|put\|revert\|drop\|list <name>`     | Save/restore working changes                 |
+| `tag`      | `add\|list / -d / -m`                      | Tag commits (delete/rename with flags)       |
+| `note`     | `add\|list / -d / -m`                      | Annotate commits (delete/rename with flags)  |
+| `config`   | `set\|list <key> <val>`                    | View/edit configuration                      |
+| `freeze`   | —                                          | Block further silo commits                   |
+| `unfreeze` | —                                          | Unblock silo commits                         |
+| `snapshot` | —                                          | Create a tar.gz archive of the project       |
+| `purge`    | —                                          | Erase all silo history                       |
+| `cleanup`  | —                                          | Remove orphaned objects, stale notes/tags    |
+| `gc`       | `[-f]`                                     | Garbage collect unreachable commits/objects  |
+| `verify`   | —                                          | Check repository integrity                   |
+| `info`     | —                                          | Show repository statistics                   |
+| `bridge`   | `enable\|disable\|status`                  | Git post-commit hook for auto silo commits   |
+| `import`   | `git\|gh <path>`                           | Import history from Git or GitHub            |
 
 ## Directory structure
 
 ```
 my-project/
   .silo/
-    config.json         # user preferences
+    config.json         # local preferences (overrides global)
     index.db            # SQLite index for fast status
     HEAD                # current branch pointer
     objects/            # content-addressable file storage
@@ -67,6 +72,7 @@ my-project/
     tags/               # named commit pointers
     notes/              # commit annotations
     logs/history.log    # append-only audit trail
+  .siloignore           # ignore patterns (optional)
 ```
 
 ## How it works
@@ -78,6 +84,43 @@ checks by comparing current file hashes against the last commit.
 
 This makes silo ideal for AI agents and single-developer workflows
 where staging is unnecessary overhead.
+
+## Configuration
+
+Config keys are validated against a known schema. Unknown keys produce
+a warning. Supported keys: `name`, `email`, `frozen`.
+
+```bash
+silo config set name "Alice"          # local config
+silo config set -g email "a@b.com"    # global (~/.config/silo/)
+silo config list                       # merged (local overrides global)
+silo config list -g                    # global only
+```
+
+## .siloignore
+
+Place a `.siloignore` file in the project root to exclude files from
+commits. Uses `fnmatch` globbing. Trailing `/` matches directory
+prefixes.
+
+```
+.venv/
+build/
+__pycache__/
+*.pyc
+dist/
+*.egg-info/
+```
+
+## Bridge
+
+Auto-create silo commits on every `git commit`:
+
+```bash
+silo bridge enable    # install post-commit hook
+silo bridge disable   # remove hook
+silo bridge status    # check status
+```
 
 ## Compared to Git
 

@@ -313,12 +313,37 @@ def update_note(silo_dir, commit_hash, text):
     return True
 
 
-def get_config(silo_dir):
-    p = silo_dir / "config.json"
-    if p.exists():
-        return Config(read_json(p))
+def get_global_config_dir():
+    import click
+    return Path(click.get_app_dir("silo"))
+
+
+def load_config_file(path):
+    if path.exists():
+        data = read_json(path)
+        issues = Config.validate(data)
+        if issues:
+            from .theme import warn
+            for i in issues:
+                warn(f"config '{path.name}': {i}")
+        return Config(data)
     return Config()
 
 
-def save_config(silo_dir, cfg):
-    write_json(silo_dir / "config.json", cfg.data)
+def get_config(silo_dir, include_global=True):
+    if include_global:
+        global_dir = get_global_config_dir()
+        global_cfg = load_config_file(global_dir / "config.json")
+        local_cfg = load_config_file(silo_dir / "config.json")
+        merged = Config({**global_cfg.data, **local_cfg.data})
+        return merged
+    return load_config_file(silo_dir / "config.json")
+
+
+def save_config(silo_dir, cfg, global_=False):
+    if global_:
+        d = get_global_config_dir()
+        ensure_dirs(d)
+        write_json(d / "config.json", cfg.data)
+    else:
+        write_json(silo_dir / "config.json", cfg.data)

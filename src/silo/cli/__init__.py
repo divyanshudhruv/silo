@@ -9,6 +9,7 @@ from .note import note
 from .config import config
 from .ops import snapshot, purge, cleanup, freeze, unfreeze, info, gc, verify
 from .import_ import import_cmd
+from .bridge import bridge
 
 
 @click.group(cls=ColorGroup)
@@ -39,6 +40,7 @@ cli.add_command(info)
 cli.add_command(freeze)
 cli.add_command(unfreeze)
 cli.add_command(import_cmd)
+cli.add_command(bridge)
 
 
 def main():

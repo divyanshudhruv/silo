@@ -3,6 +3,13 @@ from typing import Optional
 import json
 
 
+CONFIG_SCHEMA = {
+    "name": str,
+    "email": str,
+    "frozen": str,
+}
+
+
 @dataclass
 class Commit:
     hash: str
@@ -48,4 +55,27 @@ class Config:
         return self.data.get(key, default)
 
     def set(self, key, val):
+        if key in CONFIG_SCHEMA:
+            expected = CONFIG_SCHEMA[key]
+            if val is not None:
+                if expected is str:
+                    val = str(val)
+                elif expected is bool:
+                    if isinstance(val, str):
+                        val = val.lower() in ("true", "1", "yes")
+                    val = bool(val)
+                elif expected is int:
+                    val = int(val)
         self.data[key] = val
+
+    @staticmethod
+    def validate(data):
+        issues = []
+        for k, v in data.items():
+            if k not in CONFIG_SCHEMA:
+                issues.append(f"unknown key '{k}'")
+            else:
+                expected = CONFIG_SCHEMA[k]
+                if not isinstance(v, expected):
+                    issues.append(f"'{k}' should be {expected.__name__}, got {type(v).__name__}")
+        return issues

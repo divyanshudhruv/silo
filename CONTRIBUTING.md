@@ -43,9 +43,21 @@ features. Link to any related issues.
 
 ```
 src/silo/
-  cli.py       # click command tree
+  cli/
+    __init__.py  # command registry
+    _common.py   # ColorGroup, require_silo()
+    bridge.py    # git hook bridge
+    config.py    # config commands (local + global)
+    core.py      # init, commit, status, log, diff, show, amend
+    import_.py   # import git/gh
+    note.py      # note commands
+    ops.py       # snapshot, purge, cleanup, gc, verify, info
+    stash.py     # stash commands
+    tag.py       # tag commands
+    vcs.py       # branch, switch, reset
   engine.py    # snapshot, blob storage, tree diff
-  database.py  # sqlite index, commit/branch/tag persistence
-  models.py    # Commit, Tag, Note, Config dataclasses
-  utils.py     # file walking, hashing, path helpers
+  database.py  # sqlite index, commit/branch/tag/note/config persistence
+  models.py    # Commit, Tag, Note, Config dataclasses (with schema validation)
+  utils.py     # file walking, hashing, path helpers, .siloignore
+  theme.py     # color/style helpers
 ```
