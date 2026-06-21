@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from .engine import scan_tree, snapshot_to_objects, diff_trees
+from .engine import scan_tree, snapshot_to_objects, diff_trees, load_blob
 from .database import (
     init_db, get_db, update_index, get_index, clear_index,
     save_commit, load_commit, list_commits,
@@ -221,6 +221,85 @@ def diff(commit1, commit2):
         click.echo(f"~ {f}")
     for f in sorted(r):
         click.echo(f"- {f}")
+
+
+@cli.command()
+@click.argument("name", required=False)
+def branch(name):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    if not name or name == "list":
+        branches = list_branches(silo_dir)
+        _, current = get_head(silo_dir)
+        for b in branches:
+            marker = "* " if b == current else "  "
+            click.echo(f"{marker}{b}")
+        return
+
+    head_hash, _ = get_head(silo_dir)
+    if not head_hash:
+        click.echo("silo: nothing to branch from, no commits yet", err=True)
+        return
+
+    if get_branch(silo_dir, name):
+        click.echo(f"silo: branch '{name}' already exists", err=True)
+        return
+
+    set_branch(silo_dir, name, head_hash)
+    log_action(silo_dir, "branch", name)
+    click.echo(f"silo: created branch '{name}' at {head_hash[:8]}")
+
+
+@cli.command()
+@click.argument("name")
+def switch(name):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    old_hash, current_branch = get_head(silo_dir)
+    if name == current_branch:
+        click.echo(f"silo: already on '{name}'")
+        return
+
+    commit_hash = get_branch(silo_dir, name)
+    if not commit_hash:
+        click.echo(f"silo: branch '{name}' not found", err=True)
+        return
+
+    commit = load_commit(silo_dir, commit_hash)
+    if not commit:
+        click.echo(f"silo: commit not found for branch '{name}'", err=True)
+        return
+
+    project_dir = silo_dir.parent
+    for rel_path, h in commit.tree.items():
+        data = load_blob(silo_dir, h)
+        if data is None:
+            continue
+        f = project_dir / rel_path
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+
+    if old_hash:
+        old = load_commit(silo_dir, old_hash)
+        if old:
+            for rel_path in old.tree:
+                if rel_path not in commit.tree:
+                    f = project_dir / rel_path
+                    if f.exists():
+                        f.unlink()
+
+    conn = get_db(silo_dir)
+    clear_index(conn)
+    conn.close()
+    set_head(silo_dir, commit_hash, name)
+    log_action(silo_dir, "switch", f"to '{name}'")
+    click.echo(f"silo: switched to branch '{name}'")
 
 
 def main():
