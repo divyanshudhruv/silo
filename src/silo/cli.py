@@ -528,5 +528,76 @@ def note_list(commit_hash):
         click.echo(f"silo: no notes for {commit_hash[:8]}")
 
 
+@cli.command()
+@click.argument("commit_hash")
+def revert(commit_hash):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    c = load_commit(silo_dir, commit_hash)
+    if not c:
+        click.echo(f"silo: commit '{commit_hash}' not found", err=True)
+        return
+
+    project_dir = silo_dir.parent
+    current = scan_tree(project_dir)
+
+    for rel_path, h in c.tree.items():
+        data = load_blob(silo_dir, h)
+        if data is None:
+            click.echo(f"silo: blob {h[:8]} missing for '{rel_path}'", err=True)
+            continue
+        f = project_dir / rel_path
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(data)
+
+    for rel_path in current:
+        if rel_path not in c.tree:
+            f = project_dir / rel_path
+            if f.exists():
+                f.unlink()
+
+    conn = get_db(silo_dir)
+    clear_index(conn)
+    conn.close()
+    log_action(silo_dir, "revert", f"to {c.hash[:8]}")
+    click.echo(f"silo: reverted to {c.hash[:8]} ({c.message})")
+
+
+@cli.group()
+def config():
+    pass
+
+
+@config.command()
+@click.argument("key")
+@click.argument("value")
+def set(key, value):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    cfg = get_config(silo_dir)
+    cfg.set(key, value)
+    save_config(silo_dir, cfg)
+    log_action(silo_dir, "config", f"{key}={value}")
+    click.echo(f"silo: config {key}={value}")
+
+
+@config.command("list")
+def config_list():
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    cfg = get_config(silo_dir)
+    for k, v in cfg.data.items():
+        click.echo(f"{k}={v}")
+
+
 def main():
     cli()
