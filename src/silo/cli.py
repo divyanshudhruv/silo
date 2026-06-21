@@ -302,5 +302,231 @@ def switch(name):
     click.echo(f"silo: switched to branch '{name}'")
 
 
+@cli.group()
+def stash():
+    pass
+
+
+@stash.command()
+@click.argument("name")
+def this(name):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    project_dir = silo_dir.parent
+    stash_dir = silo_dir / "stash" / name
+    if stash_dir.exists():
+        click.echo(f"silo: stash '{name}' already exists", err=True)
+        return
+
+    head_hash, _ = get_head(silo_dir)
+    parent_tree = {}
+    if head_hash:
+        c = load_commit(silo_dir, head_hash)
+        if c:
+            parent_tree = c.tree
+
+    current = scan_tree(project_dir)
+    _, modified, _ = diff_trees(parent_tree, current)
+
+    if not modified:
+        click.echo("silo: nothing to stash")
+        return
+
+    ensure_dirs(stash_dir)
+    for rel_path in modified:
+        src = project_dir / rel_path
+        if src.exists():
+            dst = stash_dir / rel_path
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+            src.unlink()
+
+    log_action(silo_dir, "stash", f"saved '{name}'")
+    click.echo(f"silo: stashed {len(modified)} files as '{name}'")
+
+
+@stash.command()
+@click.argument("name")
+def put(name):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    project_dir = silo_dir.parent
+    stash_dir = silo_dir / "stash" / name
+    if stash_dir.exists():
+        click.echo(f"silo: stash '{name}' already exists", err=True)
+        return
+
+    current = scan_tree(project_dir)
+    ensure_dirs(stash_dir)
+    for rel_path, h in current.items():
+        src = project_dir / rel_path
+        if src.exists():
+            dst = stash_dir / rel_path
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+            src.unlink()
+
+    log_action(silo_dir, "stash", f"put '{name}'")
+    click.echo(f"silo: stashed all files as '{name}'")
+
+
+@stash.command()
+@click.argument("name")
+def revert(name):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    stash_dir = silo_dir / "stash" / name
+    if not stash_dir.exists():
+        click.echo(f"silo: stash '{name}' not found", err=True)
+        return
+
+    project_dir = silo_dir.parent
+    for f in stash_dir.rglob("*"):
+        if not f.is_file():
+            continue
+        rel = f.relative_to(stash_dir)
+        dst = project_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(f.read_bytes())
+
+    import shutil
+    shutil.rmtree(stash_dir)
+    log_action(silo_dir, "stash", f"reverted '{name}'")
+    click.echo(f"silo: reverted stash '{name}'")
+
+
+@stash.command()
+@click.argument("name")
+def drop(name):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    stash_dir = silo_dir / "stash" / name
+    if not stash_dir.exists():
+        click.echo(f"silo: stash '{name}' not found", err=True)
+        return
+
+    import shutil
+    shutil.rmtree(stash_dir)
+    log_action(silo_dir, "stash", f"dropped '{name}'")
+    click.echo(f"silo: dropped stash '{name}'")
+
+
+@stash.command("list")
+def stash_list():
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    stash_dir = silo_dir / "stash"
+    if not stash_dir.exists():
+        return
+
+    names = sorted(d.name for d in stash_dir.iterdir() if d.is_dir())
+    if names:
+        click.echo("\n".join(names))
+    else:
+        click.echo("silo: no stashes")
+
+
+@cli.group()
+def tag():
+    pass
+
+
+@tag.command()
+@click.argument("name")
+@click.argument("commit_hash", required=False)
+def add(name, commit_hash):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    if load_tag(silo_dir, name):
+        click.echo(f"silo: tag '{name}' already exists", err=True)
+        return
+
+    if not commit_hash:
+        head_hash, _ = get_head(silo_dir)
+        if not head_hash:
+            click.echo("silo: no commits to tag", err=True)
+            return
+        commit_hash = head_hash
+
+    t = Tag(name=name, commit_hash=commit_hash, timestamp=time.time())
+    save_tag(silo_dir, t)
+    log_action(silo_dir, "tag", f"'{name}' -> {commit_hash[:8]}")
+    click.echo(f"silo: tagged '{name}' at {commit_hash[:8]}")
+
+
+@tag.command("list")
+def tag_list():
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    tags = list_tags(silo_dir)
+    if tags:
+        for t in tags:
+            h = load_tag(silo_dir, t)
+            click.echo(f"{t} -> {h[:8] if h else '?'}")
+    else:
+        click.echo("silo: no tags")
+
+
+@cli.group()
+def note():
+    pass
+
+
+@note.command()
+@click.argument("commit_hash")
+@click.argument("text")
+def add(commit_hash, text):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    c = load_commit(silo_dir, commit_hash)
+    if not c:
+        click.echo(f"silo: commit '{commit_hash}' not found", err=True)
+        return
+
+    n = Note(commit_hash=commit_hash, text=text, timestamp=time.time())
+    save_note(silo_dir, n)
+    log_action(silo_dir, "note", f"added to {commit_hash[:8]}")
+    click.echo(f"silo: note added to {commit_hash[:8]}")
+
+
+@note.command("list")
+@click.argument("commit_hash")
+def note_list(commit_hash):
+    silo_dir = find_silo_dir()
+    if not silo_dir:
+        click.echo("silo: not a silo repository", err=True)
+        return
+
+    text = load_note(silo_dir, commit_hash)
+    if text:
+        click.echo(text)
+    else:
+        click.echo(f"silo: no notes for {commit_hash[:8]}")
+
+
 def main():
     cli()

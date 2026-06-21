@@ -72,10 +72,20 @@ def save_commit(silo_dir, commit):
     p.write_text(commit.to_json())
 
 
+def find_commit(silo_dir, h):
+    commits_dir = silo_dir / "commits"
+    if not commits_dir.exists():
+        return None
+    for f in commits_dir.glob("*.json"):
+        if f.stem.startswith(h):
+            return Commit.from_json(f.read_text())
+    return None
+
+
 def load_commit(silo_dir, h):
     p = silo_dir / "commits" / f"{h}.json"
     if not p.exists():
-        return None
+        return find_commit(silo_dir, h)
     return Commit.from_json(p.read_text())
 
 
