@@ -76,7 +76,7 @@ pip install silo
 Or from source:
 
 ```bash
-git clone https://github.com
+git clone https://github.com/divyanshudhruv/silo.git
 cd silo
 pip install -e .
 ```
