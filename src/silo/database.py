@@ -1,11 +1,12 @@
-import os
 import sqlite3
-import json
 import time
 from pathlib import Path
 
+import click
+
 from .models import Commit, Config
 from .utils import ensure_dirs, read_json, write_json
+from .theme import warn
 
 
 def init_db(silo_dir):
@@ -76,19 +77,23 @@ def clear_index(conn):
     conn.commit()
 
 
-def save_commit(silo_dir, commit):
+def save_commit(silo_dir, commit, conn=None):
     p = silo_dir / "commits" / f"{commit.hash}.json"
     p.write_text(commit.to_json())
-    try:
+    close = conn is None
+    if close:
         conn = sqlite3.connect(str(silo_dir / "index.db"))
+    try:
         conn.execute(
             "INSERT OR REPLACE INTO commits_index (hash, message, timestamp, author, branch) VALUES (?, ?, ?, ?, ?)",
             (commit.hash, commit.message, commit.timestamp, commit.author, commit.branch or ""),
         )
         conn.commit()
-        conn.close()
     except sqlite3.OperationalError:
         pass
+    finally:
+        if close:
+            conn.close()
 
 
 def resolve_ref(silo_dir, ref):
@@ -118,12 +123,16 @@ def resolve_ref(silo_dir, ref):
 def find_commit(silo_dir, h):
     try:
         conn = sqlite3.connect(str(silo_dir / "index.db"))
-        cur = conn.execute(
-            "SELECT hash FROM commits_index WHERE hash LIKE ?",
-            (h + "%",),
-        )
-        row = cur.fetchone()
-        conn.close()
+        try:
+            cur = conn.execute(
+                "SELECT hash FROM commits_index WHERE hash LIKE ?",
+                (h + "%",),
+            )
+            row = cur.fetchone()
+        except sqlite3.OperationalError:
+            row = None
+        finally:
+            conn.close()
         if row:
             return load_commit(silo_dir, row[0])
     except sqlite3.OperationalError:
@@ -140,7 +149,7 @@ def find_commit(silo_dir, h):
 def load_commit(silo_dir, h):
     p = silo_dir / "commits" / f"{h}.json"
     if not p.exists():
-        return find_commit(silo_dir, h)
+        return None
     return Commit.from_json(p.read_text())
 
 
@@ -159,11 +168,14 @@ def list_commits(silo_dir):
 def list_commits_meta(silo_dir):
     try:
         conn = sqlite3.connect(str(silo_dir / "index.db"))
-        cur = conn.execute("SELECT hash, message, timestamp, author, branch FROM commits_index ORDER BY timestamp DESC")
-        rows = cur.fetchall()
-        conn.close()
+        try:
+            cur = conn.execute("SELECT hash, message, timestamp, author, branch FROM commits_index ORDER BY timestamp DESC")
+            rows = cur.fetchall()
+        except sqlite3.OperationalError:
+            rows = None
+        finally:
+            conn.close()
         if rows:
-            from .models import Commit
             return [Commit(hash=r[0], message=r[1], timestamp=r[2], author=r[3], branch=r[4], tree={}, parent=None) for r in rows]
     except sqlite3.OperationalError:
         pass
@@ -314,7 +326,6 @@ def update_note(silo_dir, commit_hash, text):
 
 
 def get_global_config_dir():
-    import click
     return Path(click.get_app_dir("silo"))
 
 
@@ -323,7 +334,6 @@ def load_config_file(path):
         data = read_json(path)
         issues = Config.validate(data)
         if issues:
-            from .theme import warn
             for i in issues:
                 warn(f"config '{path.name}': {i}")
         return Config(data)

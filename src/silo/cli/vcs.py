@@ -104,12 +104,17 @@ def switch(name):
     for f in project_dir.rglob("*"):
         if not f.is_file():
             continue
-        rel = str(f.relative_to(project_dir).as_posix())
-        if rel not in commit.tree:
+        rel = f.relative_to(project_dir)
+        parts = rel.parts
+        if any(p.startswith(".silo") for p in parts) or any(p == ".git" for p in parts):
+            continue
+        rel_str = str(rel.as_posix())
+        if rel_str not in commit.tree:
             f.unlink()
 
     conn = get_db(silo_dir)
     clear_index(conn)
+    update_index(conn, commit.tree)
     conn.close()
 
     set_head(silo_dir, commit_hash, name)
@@ -124,41 +129,44 @@ def reset(commit_hash):
     if not silo_dir:
         return
 
-    from ..database import list_commits, save_commit
-    commits = list_commits(silo_dir)
-    if not commits:
-        err("no commits yet")
+    head_hash, branch = get_head(silo_dir)
+    if not head_hash:
+        err("no HEAD commit")
         return
 
-    if commit_hash:
-        resolved = resolve_ref(silo_dir, commit_hash)
-        if resolved:
-            commit_hash = resolved
-
     if not commit_hash:
+        commits = list_commits(silo_dir)
+        if not commits:
+            err("no commits yet")
+            return
         choices = [f"{c.hash[:8]}  {c.message[:60]}" for c in commits]
         picked = questionary.select("Reset to commit:", choices=choices).ask()
         if not picked:
             return
         commit_hash = picked.split()[0]
 
+    resolved = resolve_ref(silo_dir, commit_hash)
+    if resolved:
+        commit_hash = resolved
+
     target = load_commit(silo_dir, commit_hash)
     if not target:
         err(f"commit '{commit_hash}' not found")
         return
 
-    head_hash, branch = get_head(silo_dir)
-    if not head_hash:
-        err("no HEAD commit")
-        return
-
-    target_idx = None
-    for i, c in enumerate(commits):
-        if c.hash == commit_hash:
-            target_idx = i
+    # Walk parent chain from HEAD to target, delete descendants
+    to_delete = []
+    cur = head_hash
+    while cur and cur != commit_hash:
+        to_delete.append(cur)
+        c = load_commit(silo_dir, cur)
+        if not c:
             break
+        cur = c.parent
 
-    to_delete = [c.hash for c in commits[:target_idx]]
+    if cur != commit_hash:
+        err(f"commit '{commit_hash}' is not an ancestor of HEAD")
+        return
 
     for h in to_delete:
         p = silo_dir / "commits" / f"{h}.json"

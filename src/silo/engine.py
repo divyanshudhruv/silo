@@ -1,9 +1,7 @@
-import os
 import zlib
 import hashlib
-from pathlib import Path
 
-from .utils import walk_files, hash_file, ensure_dirs, load_ignore_patterns
+from .utils import walk_files, hash_file, ensure_dirs
 
 
 def scan_tree(project_dir, ignore_patterns=None):

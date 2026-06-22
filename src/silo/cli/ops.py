@@ -1,20 +1,55 @@
 import time
 import shutil
 import tarfile
-import time
 
 import click
 
 from ..engine import scan_tree, load_blob
 from ..database import (
-    get_db, clear_index, init_db, list_commits, list_commits_meta,
+    init_db, list_commits, list_commits_meta,
     log_action, get_config, save_config, list_tags, list_branches,
-    load_tag, load_commit, get_head, resolve_ref, delete_tag, save_tag,
-    delete_note, update_note, load_note,
+    get_branch, load_tag, load_commit, get_head, delete_tag,
 )
 from ..utils import readable_time, load_ignore_patterns
 from ..theme import ok, err, t
 from ._common import require_silo
+
+
+def _clean_orphans(silo_dir, valid_hashes):
+    freed = 0
+    obj_dir = silo_dir / "objects"
+    if obj_dir.exists():
+        for sub in obj_dir.iterdir():
+            if not sub.is_dir():
+                continue
+            for f in sub.iterdir():
+                h = sub.name + f.name
+                if h not in valid_hashes:
+                    f.unlink()
+                    freed += 1
+
+    dropped_notes = 0
+    notes_dir = silo_dir / "notes"
+    if notes_dir.exists():
+        for f in notes_dir.iterdir():
+            if f.stem not in valid_hashes:
+                f.unlink()
+                dropped_notes += 1
+
+    dropped_tags = 0
+    for t_name in list_tags(silo_dir):
+        th = load_tag(silo_dir, t_name)
+        if th and th not in valid_hashes:
+            delete_tag(silo_dir, t_name)
+            dropped_tags += 1
+
+    stash_dir = silo_dir / "stash"
+    if stash_dir.exists():
+        for d in list(stash_dir.iterdir()):
+            if d.is_dir() and not any(d.iterdir()):
+                d.rmdir()
+
+    return freed, dropped_notes, dropped_tags
 
 
 @click.command(help="Create a compressed archive of the project")
@@ -24,16 +59,20 @@ def snapshot():
         return
 
     project_dir = silo_dir.parent
+    ignore = load_ignore_patterns(silo_dir)
     ts = time.strftime("%Y%m%d_%H%M%S")
     archive_name = project_dir.name + f"_snapshot_{ts}"
     dest = project_dir.parent / archive_name
 
     def filter_tar(ti):
         name = ti.name.replace("\\", "/")
-        if name.startswith(".silo/") or name.startswith(".git/") or name.startswith(".venv/"):
+        if name.startswith(".silo/") or name.startswith(".git/"):
             return None
-        if name.endswith(".pyc") or "__pycache__" in name:
-            return None
+        for pat in ignore:
+            if pat.endswith("/") and name.startswith(pat):
+                return None
+            if ti.name.endswith(pat.replace("*", "")):
+                return None
         return ti
 
     with tarfile.open(f"{dest}.tar.gz", "w:gz") as tar:
@@ -68,44 +107,13 @@ def cleanup():
     if not silo_dir:
         return
 
-    committed = {c.hash for c in list_commits(silo_dir)}
+    commits = list_commits(silo_dir)
+    committed = {c.hash for c in commits}
+    used = set()
+    for c in commits:
+        used.update(c.tree.values())
 
-    freed = 0
-    obj_dir = silo_dir / "objects"
-    if obj_dir.exists():
-        used = set()
-        for c in list_commits(silo_dir):
-            for h in c.tree.values():
-                used.add(h)
-        for sub in obj_dir.iterdir():
-            if not sub.is_dir():
-                continue
-            for f in sub.iterdir():
-                h = sub.name + f.name
-                if h not in used:
-                    f.unlink()
-                    freed += 1
-
-    dropped_notes = 0
-    notes_dir = silo_dir / "notes"
-    if notes_dir.exists():
-        for f in notes_dir.iterdir():
-            if f.stem not in committed:
-                f.unlink()
-                dropped_notes += 1
-
-    dropped_tags = 0
-    for t_name in list_tags(silo_dir):
-        th = load_tag(silo_dir, t_name)
-        if th and th not in committed:
-            delete_tag(silo_dir, t_name)
-            dropped_tags += 1
-
-    stash_dir = silo_dir / "stash"
-    if stash_dir.exists():
-        for d in list(stash_dir.iterdir()):
-            if d.is_dir() and not any(d.iterdir()):
-                d.rmdir()
+    freed, dropped_notes, dropped_tags = _clean_orphans(silo_dir, committed | used)
 
     parts = []
     if freed:
@@ -202,9 +210,6 @@ def gc(force):
     commits = list_commits(silo_dir)
     all_hashes = {c.hash for c in commits}
 
-    from ..database import get_branch
-
-    # Collect reachable hashes from branches and tags
     reachable = set()
     for b in list_branches(silo_dir):
         bh = get_branch(silo_dir, b)
@@ -220,7 +225,6 @@ def gc(force):
         if th:
             reachable.add(th)
 
-    # Delete unreachable commits
     dropped_commits = 0
     for c in commits:
         if c.hash not in reachable:
@@ -229,54 +233,19 @@ def gc(force):
                 p.unlink()
                 dropped_commits += 1
 
-    # Delete orphaned objects (blobs not in any commit tree)
     used_hashes = set()
     for c in commits:
         if c.hash in reachable:
             used_hashes.update(c.tree.values())
 
-    freed_objects = 0
-    obj_dir = silo_dir / "objects"
-    if obj_dir.exists():
-        for sub in obj_dir.iterdir():
-            if not sub.is_dir():
-                continue
-            for f in sub.iterdir():
-                h = sub.name + f.name
-                if h not in used_hashes:
-                    f.unlink()
-                    freed_objects += 1
+    freed, dropped_notes, dropped_tags = _clean_orphans(silo_dir, all_hashes | used_hashes)
 
-    # Delete notes/tags pointing to deleted commits
-    dropped_notes = 0
-    notes_dir = silo_dir / "notes"
-    if notes_dir.exists():
-        for f in notes_dir.iterdir():
-            h = f.stem
-            if h not in all_hashes:
-                f.unlink()
-                dropped_notes += 1
-
-    dropped_tags = 0
-    for t_name in list_tags(silo_dir):
-        th = load_tag(silo_dir, t_name)
-        if th and th not in all_hashes:
-            delete_tag(silo_dir, t_name)
-            dropped_tags += 1
-
-    # Remove empty stash dirs
-    stash_dir = silo_dir / "stash"
-    if stash_dir.exists():
-        for d in list(stash_dir.iterdir()):
-            if d.is_dir() and not any(d.iterdir()):
-                d.rmdir()
-
-    log_action(silo_dir, "gc", f"removed {dropped_commits} commits, {freed_objects} objects, {dropped_notes} notes, {dropped_tags} tags")
+    log_action(silo_dir, "gc", f"removed {dropped_commits} commits, {freed} objects, {dropped_notes} notes, {dropped_tags} tags")
     parts = []
     if dropped_commits:
         parts.append(f"{dropped_commits} commits")
-    if freed_objects:
-        parts.append(f"{freed_objects} objects")
+    if freed:
+        parts.append(f"{freed} objects")
     if dropped_notes:
         parts.append(f"{dropped_notes} notes")
     if dropped_tags:

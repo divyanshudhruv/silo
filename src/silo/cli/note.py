@@ -70,6 +70,11 @@ def note_add(text, commit_hash):
         err(f"commit '{commit_hash}' not found")
         return
 
+    existing = load_note(silo_dir, commit_hash)
+    if existing:
+        err(f"note already exists for {t(commit_hash[:8], 'hash')}")
+        return
+
     n = Note(commit_hash=commit_hash, text=text, timestamp=time.time())
     save_note(silo_dir, n)
     log_action(silo_dir, "note", f"added to {commit_hash[:8]}")

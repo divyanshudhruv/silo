@@ -1,6 +1,9 @@
 import json
 import hashlib
+import re
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import click
@@ -39,7 +42,7 @@ def _git_tree(git_path, commit_hash):
 def _import_commit(git_path, silo_dir, commit_hash):
     git_tree = _git_tree(git_path, commit_hash)
     if git_tree is None:
-        return None, None, None
+        return None, None
 
     tree = {}
     contents = {}
@@ -56,7 +59,7 @@ def _import_commit(git_path, silo_dir, commit_hash):
         contents[h] = data
 
     snapshot_to_objects(silo_dir, tree, contents)
-    return tree, contents, None
+    return tree, contents
 
 
 @click.group("import", cls=ColorGroup, help="Import history from Git or GitHub")
@@ -76,7 +79,6 @@ def git_cmd(git_dir):
     if silo_dir.exists():
         if not click.confirm(t(f"silo already exists in {git_path}. reinitialize? existing data will be lost.", "warn")):
             return
-        import shutil
         for d in ["objects", "commits", "branches", "stash", "tags", "notes", "logs"]:
             p = silo_dir / d
             if p.exists():
@@ -105,29 +107,24 @@ def git_cmd(git_dir):
     cfg = get_config(silo_dir)
 
     last_author = None
+    prev_silo_hash = None
 
     for i, entry in enumerate(entries):
         lines = entry.strip().split("\n")
         if len(lines) < 4:
             continue
-        h_in = lines[0]
         ts = float(lines[1])
         author = lines[2]
         msg = "\n".join(lines[3:])
         last_author = author
 
-        tree, contents, _ = _import_commit(git_path, silo_dir, h_in)
+        tree, contents = _import_commit(git_path, silo_dir, lines[0])
         if tree is None:
             continue
 
-        parent = None
-        if i > 0:
-            prev_entry = entries[i - 1].strip().split("\n")
-            parent = prev_entry[0]
-
         commit_data = {
             "tree": tree,
-            "parent": parent,
+            "parent": prev_silo_hash,
             "author": author,
             "message": msg,
             "co_authors": [],
@@ -136,6 +133,7 @@ def git_cmd(git_dir):
         }
         raw = json.dumps(commit_data, sort_keys=True).encode()
         ch = hashlib.sha256(raw).hexdigest()
+        prev_silo_hash = ch
         c_obj = Commit(hash=ch, **commit_data)
         save_commit(silo_dir, c_obj)
         set_head(silo_dir, ch, "main")
@@ -147,7 +145,6 @@ def git_cmd(git_dir):
         click.echo(f"  [{t(f'{i+1}/{total}', 'highlight')}] {t(ch[:8], 'hash')} {msg[:50]}")
 
     if last_author and "@" in last_author:
-        import re
         m = re.match(r"(.+)\s+<([^>]+)>", last_author)
         if m:
             cfg.set("name", m.group(1))
@@ -161,8 +158,6 @@ def git_cmd(git_dir):
 @import_cmd.command(help="Clone a GitHub repo and import its history")
 @click.argument("repo")
 def gh_cmd(repo):
-    import tempfile
-
     tmp = Path(tempfile.mkdtemp(suffix="_silo_import"))
     url = repo
     if "/" in repo and not repo.startswith("http"):
@@ -175,7 +170,6 @@ def gh_cmd(repo):
     )
     if result.returncode != 0:
         err(f"clone failed: {result.stderr}")
-        import shutil
         shutil.rmtree(str(tmp))
         return
 
@@ -183,5 +177,4 @@ def gh_cmd(repo):
     ctx = click.get_current_context()
     ctx.invoke(git_cmd, git_dir=str(tmp / "repo"))
 
-    import shutil
     shutil.rmtree(str(tmp))

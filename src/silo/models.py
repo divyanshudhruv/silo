@@ -57,16 +57,7 @@ class Config:
 
     def set(self, key, val):
         if key in CONFIG_SCHEMA:
-            expected = CONFIG_SCHEMA[key]
-            if val is not None:
-                if expected is str:
-                    val = str(val)
-                elif expected is bool:
-                    if isinstance(val, str):
-                        val = val.lower() in ("true", "1", "yes")
-                    val = bool(val)
-                elif expected is int:
-                    val = int(val)
+            val = str(val)
         self.data[key] = val
 
     @staticmethod

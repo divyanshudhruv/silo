@@ -118,8 +118,7 @@ def commit(message, co):
 
 
 @click.command(help="Show working tree changes against last commit")
-@click.option("--ignored", is_flag=True, help="Show ignored files")
-def status(ignored):
+def status():
     silo_dir = require_silo()
     if not silo_dir:
         return
@@ -291,7 +290,9 @@ def diff(commit1, commit2, stat):
         if not stat:
             data1 = load_blob(silo_dir, m[f][0]) if m[f][0] else b""
             data2 = load_blob(silo_dir, m[f][1]) if m[f][1] else b""
-            if data1 is not None and data2 is not None:
+            if data1 is None or data2 is None:
+                click.echo(f"  {t('  (missing blob)', 'error')}")
+            else:
                 try:
                     lines1 = data1.decode().splitlines(keepends=True)
                     lines2 = data2.decode().splitlines(keepends=True)
@@ -417,8 +418,6 @@ def show(commit_hash):
     if not c:
         err("commit not found")
         return
-
-    from ..engine import diff_trees
 
     parent_tree = {}
     if c.parent:

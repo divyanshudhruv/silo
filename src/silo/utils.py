@@ -1,4 +1,3 @@
-import os
 import json
 import hashlib
 import fnmatch
@@ -32,11 +31,11 @@ def walk_files(dir_path, ignore_patterns=None):
             continue
         rel = f.relative_to(p)
         parts = rel.parts
-        if parts and parts[0].startswith(".silo"):
+        if any(part.startswith(".silo") for part in parts):
             continue
-        if parts and parts[0] == ".git":
+        if any(part == ".git" for part in parts):
             continue
-        if parts and parts[0].startswith("__pycache__"):
+        if any(part == "__pycache__" for part in parts):
             continue
         if f.suffix == ".pyc":
             continue
@@ -44,10 +43,12 @@ def walk_files(dir_path, ignore_patterns=None):
             rel_str = str(rel.as_posix())
             skip = False
             for pat in ignore_patterns:
-                if pat.endswith("/") and rel_str.startswith(pat):
-                    skip = True
-                    break
-                if fnmatch.fnmatch(rel_str, pat) or fnmatch.fnmatch(Path(rel_str).name, pat):
+                if pat.endswith("/"):
+                    base = pat.rstrip("/")
+                    if rel_str == base or rel_str.startswith(base + "/"):
+                        skip = True
+                        break
+                elif fnmatch.fnmatch(rel_str, pat) or fnmatch.fnmatch(Path(rel_str).name, pat):
                     skip = True
                     break
             if skip:
