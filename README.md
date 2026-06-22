@@ -1,5 +1,6 @@
 <img alt="banner" src="./public/assets/banner.png" />
 
+
 <p align="center">
 A lightweight AI-first CLI tool that <code>snapshots</code> your working tree as <code>commits</code> with no server, no account, no setup - just <code>silo init</code> and you're versioning.
 <br><br>
@@ -15,6 +16,9 @@ A lightweight AI-first CLI tool that <code>snapshots</code> your working tree as
 
 > [!WARNING]\
 > **Silo is under active development.** Commands and storage formats may change. Not recommended for top production use yet - but perfect for experimenting and iterating on personal projects.
+
+> This repository uses **[Cummand](https://github.com/divyanshudhruv/cummand)** for `pip` previews.
+
 
 ## Table of Contents
 
