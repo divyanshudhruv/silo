@@ -56,7 +56,7 @@ def _import_commit(git_path, silo_dir, commit_hash):
         data = res.stdout
         h = hashlib.sha256(data).hexdigest()
         tree[path] = h
-        contents[h] = data
+        contents[path] = data
 
     snapshot_to_objects(silo_dir, tree, contents)
     return tree, contents

@@ -34,7 +34,7 @@ silo log --oneline
 | ---------- | -------------------------------------- | -------------------------------------- |
 | `init`     | `[dir]`                                    | Create a new silo repository                  |
 | `commit`   | `"<msg>" [--co <name>]`                    | Snapshot all files                           |
-| `status`   | `[--ignored]`                              | Show working tree changes                    |
+| `status`   | —                                          | Show working tree changes                    |
 | `log`      | `[--oneline] [--graph] [--author] [--since] [--grep] [-n]` | Show commit history with filters |
 | `diff`     | `[<c1> [<c2>]] [--stat]`                   | Compare commits or working tree (with content diff) |
 | `show`     | `[<ref>]`                                  | Show commit details and file changes         |
