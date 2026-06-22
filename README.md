@@ -1,4 +1,4 @@
-<img width="1000" height="320" alt="banner" src="./public/assets/banner.png" />
+<img alt="banner" src="./public/assets/banner.png" />
 
 <p align="center">
 A lightweight AI-first CLI tool that <code>snapshots</code> your working tree as <code>commits</code> with no server, no account, no setup - just <code>silo init</code> and you're versioning.
