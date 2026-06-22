@@ -1,6 +1,8 @@
 import json
 import time
 import hashlib
+from difflib import unified_diff
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -9,11 +11,12 @@ import questionary
 from ..engine import scan_tree, scan_tree_with_content, snapshot_to_objects, diff_trees, load_blob
 from ..database import (
     init_db, get_db, update_index, get_index, clear_index,
-    save_commit, load_commit, list_commits, list_commits_meta,
-    resolve_ref, get_head, set_head, log_action, get_config,
+    save_commit, load_commit, resolve_commit, list_commits, list_commits_meta,
+    get_head, set_head, log_action, get_config,
+    replace_commit_in_tags_notes,
 )
-from ..models import Commit, Tag
-from ..utils import ensure_dirs, readable_time, load_ignore_patterns
+from ..models import Commit
+from ..utils import ensure_dirs, readable_time, load_ignore_patterns, filter_ignored
 from ..theme import ok, err, t
 from ._common import require_silo
 
@@ -42,13 +45,15 @@ def init(directory):
     ok(f"initialized empty repository in {silo_dir}")
     click.echo(f"  {t('config.json', 'file')} and {t('HEAD', 'file')} are safe to commit to git")
     click.echo(f"  create {t('.siloignore', 'file')} in project root to exclude patterns")
+    click.echo(f"  or set {t('usegitignore', 'file')}=true with {t('silo config set usegitignore true', 'highlight')} to use .gitignore instead")
     click.echo(f"  run {t('silo commit', 'highlight')} to create the first snapshot")
 
 
 @click.command(help="Snapshot all files with a commit message")
 @click.argument("message", required=False)
 @click.option("--co", "-c", multiple=True, help="Co-author names")
-def commit(message, co):
+@click.option("--noignore", is_flag=True, help="Ignore .siloignore and snapshot all files")
+def commit(message, co, noignore):
     silo_dir = require_silo()
     if not silo_dir:
         return
@@ -67,8 +72,11 @@ def commit(message, co):
         if parent_commit:
             parent_tree = parent_commit.tree
 
-    ignore = load_ignore_patterns(silo_dir)
+    ignore = None if noignore else load_ignore_patterns(silo_dir)
     current_tree, contents = scan_tree_with_content(project_dir, ignore)
+    if ignore:
+        keep = filter_ignored(list(parent_tree), ignore)
+        parent_tree = {k: parent_tree[k] for k in keep}
     added, modified, removed = diff_trees(parent_tree, current_tree)
 
     if not added and not modified and not removed:
@@ -100,6 +108,7 @@ def commit(message, co):
     set_head(silo_dir, h, branch or "main")
 
     conn = get_db(silo_dir)
+    clear_index(conn)
     update_index(conn, current_tree)
     conn.close()
 
@@ -118,18 +127,25 @@ def commit(message, co):
 
 
 @click.command(help="Show working tree changes against last commit")
-def status():
+@click.option("--noignore", is_flag=True, help="Ignore .siloignore and show all files")
+def status(noignore):
     silo_dir = require_silo()
     if not silo_dir:
         return
 
     project_dir = silo_dir.parent
+    _, branch = get_head(silo_dir)
+    click.echo(f"On branch {t(branch or 'detached', 'branch')}")
+
     conn = get_db(silo_dir)
     index = get_index(conn)
     conn.close()
 
-    ignore = load_ignore_patterns(silo_dir)
+    ignore = None if noignore else load_ignore_patterns(silo_dir)
     current = scan_tree(project_dir, ignore)
+    if ignore:
+        keep = filter_ignored(list(index), ignore)
+        index = {k: index[k] for k in keep}
     added, modified, removed = diff_trees(index, current)
 
     if not added and not modified and not removed:
@@ -139,15 +155,15 @@ def status():
     if added:
         click.echo(t("Changes to be added:", "added"))
         for f in sorted(added):
-            click.echo(f"  {t('+', 'added')} {f}")
+            click.echo(f"  {t('+', 'added')} {t(f, 'file')}")
     if modified:
         click.echo(t("Changes not staged:", "modified"))
         for f in sorted(modified):
-            click.echo(f"  {t('~', 'modified')} {f}")
+            click.echo(f"  {t('~', 'modified')} {t(f, 'file')}")
     if removed:
         click.echo(t("Deleted files:", "removed"))
         for f in sorted(removed):
-            click.echo(f"  {t('-', 'removed')} {f}")
+            click.echo(f"  {t('-', 'removed')} {t(f, 'file')}")
 
 
 @click.command(help="Show commit history")
@@ -177,7 +193,6 @@ def log(oneline, graph, author, since, grep, n):
         commits = [c for c in commits if author_lower in c.author.lower()]
     if since:
         try:
-            from datetime import datetime
             since_ts = datetime.strptime(since, "%Y-%m-%d").timestamp()
             commits = [c for c in commits if c.timestamp >= since_ts]
         except ValueError:
@@ -210,11 +225,11 @@ def log(oneline, graph, author, since, grep, n):
             if c.branch:
                 click.echo(f"Branch: {t(c.branch, 'branch')}")
             click.echo(f"Author: {c.author}")
+            for co in c.co_authors:
+                click.echo(f"Co-author: {co}")
             click.echo(f"Date:   {ts}")
             click.echo("")
             click.echo(f"    {c.message}")
-            if c.co_authors:
-                click.echo(f"    Co-authored-by: {', '.join(c.co_authors)}")
             click.echo("")
 
 
@@ -222,34 +237,24 @@ def log(oneline, graph, author, since, grep, n):
 @click.argument("commit1", required=False)
 @click.argument("commit2", required=False)
 @click.option("--stat", is_flag=True, help="Show file stats only")
-def diff(commit1, commit2, stat):
+@click.option("--noignore", is_flag=True, help="Ignore .siloignore when diffing working tree")
+def diff(commit1, commit2, stat, noignore):
     silo_dir = require_silo()
     if not silo_dir:
         return
 
-    from difflib import unified_diff
-
     project_dir = silo_dir.parent
     head_hash, _ = get_head(silo_dir)
 
-    if commit1:
-        r1 = resolve_ref(silo_dir, commit1)
-        if r1:
-            commit1 = r1
-    if commit2:
-        r2 = resolve_ref(silo_dir, commit2)
-        if r2:
-            commit2 = r2
-
     if commit1 and commit2:
-        c1 = load_commit(silo_dir, commit1)
-        c2 = load_commit(silo_dir, commit2)
+        _, c1 = resolve_commit(silo_dir, commit1)
+        _, c2 = resolve_commit(silo_dir, commit2)
         if not c1 or not c2:
             err("invalid commit hash")
             return
         tree1, tree2 = c1.tree, c2.tree
     elif commit1:
-        c1 = load_commit(silo_dir, commit1)
+        _, c1 = resolve_commit(silo_dir, commit1)
         if not c1:
             err("invalid commit hash")
             return
@@ -264,9 +269,13 @@ def diff(commit1, commit2, stat):
             ok("no commits yet")
             return
         head = load_commit(silo_dir, head_hash)
-        ignore = load_ignore_patterns(silo_dir)
+        ignore = None if noignore else load_ignore_patterns(silo_dir)
         current = scan_tree(project_dir, ignore)
-        tree1, tree2 = head.tree, current
+        tree1 = head.tree
+        if ignore:
+            keep = filter_ignored(list(tree1), ignore)
+            tree1 = {k: tree1[k] for k in keep}
+        tree2 = current
 
     a, m, r = diff_trees(tree1, tree2)
 
@@ -278,7 +287,7 @@ def diff(commit1, commit2, stat):
     click.echo(f"{nfiles} file(s) changed:")
 
     for f in sorted(a):
-        click.echo(f"  {t('+', 'added')} {f}")
+        click.echo(f"  {t('+', 'added')} {t(f, 'file')}")
         if not stat:
             data2 = load_blob(silo_dir, a[f])
             if data2:
@@ -286,7 +295,7 @@ def diff(commit1, commit2, stat):
                 for line in data2.decode().splitlines():
                     click.echo(f"  {t('+' + line, 'added')}")
     for f in sorted(m):
-        click.echo(f"  {t('~', 'modified')} {f}")
+        click.echo(f"  {t('~', 'modified')} {t(f, 'file')}")
         if not stat:
             data1 = load_blob(silo_dir, m[f][0]) if m[f][0] else b""
             data2 = load_blob(silo_dir, m[f][1]) if m[f][1] else b""
@@ -308,7 +317,7 @@ def diff(commit1, commit2, stat):
                 except UnicodeDecodeError:
                     click.echo(f"  {t('  (binary file)', 'dim')}")
     for f in sorted(r):
-        click.echo(f"  {t('-', 'removed')} {f}")
+        click.echo(f"  {t('-', 'removed')} {t(f, 'file')}")
         if not stat:
             data1 = load_blob(silo_dir, r[f])
             if data1:
@@ -325,20 +334,9 @@ def amend(message, commit_hash):
     if not silo_dir:
         return
 
-    if commit_hash:
-        resolved = resolve_ref(silo_dir, commit_hash)
-        if resolved:
-            commit_hash = resolved
-    else:
-        commit_hash, _ = get_head(silo_dir)
-
-    if not commit_hash:
-        err("no commits yet")
-        return
-
-    c = load_commit(silo_dir, commit_hash)
+    commit_hash, c = resolve_commit(silo_dir, commit_hash)
     if not c:
-        err("commit not found")
+        err("no commits yet" if not commit_hash else "commit not found")
         return
 
     branch = c.branch
@@ -371,27 +369,17 @@ def amend(message, commit_hash):
     if old_p.exists():
         old_p.unlink()
 
-    from ..database import list_tags, load_tag, save_tag, load_note, save_note
+    conn_amend = get_db(silo_dir)
+    conn_amend.execute("DELETE FROM commits_index WHERE hash = ?", (commit_hash,))
+    conn_amend.commit()
 
-    for t_name in list_tags(silo_dir):
-        h = load_tag(silo_dir, t_name)
-        if h == commit_hash:
-            tag_obj = Tag(name=t_name, commit_hash=new_hash, timestamp=time.time())
-            save_tag(silo_dir, tag_obj)
-
-    old_note = load_note(silo_dir, commit_hash)
-    if old_note:
-        notes_dir = silo_dir / "notes"
-        old_np = notes_dir / f"{commit_hash}.txt"
-        if old_np.exists():
-            old_np.rename(notes_dir / f"{new_hash}.txt")
+    replace_commit_in_tags_notes(silo_dir, commit_hash, new_hash)
 
     set_head(silo_dir, new_hash, branch)
 
-    conn = get_db(silo_dir)
-    clear_index(conn)
-    update_index(conn, c.tree)
-    conn.close()
+    clear_index(conn_amend)
+    update_index(conn_amend, c.tree)
+    conn_amend.close()
 
     log_action(silo_dir, "amend", f"[{new_hash[:8]}] {message}")
     ok(f"amended {t(commit_hash[:8], 'hash')} as {t(new_hash[:8], 'hash')} ({message})")
@@ -404,19 +392,9 @@ def show(commit_hash):
     if not silo_dir:
         return
 
-    if not commit_hash:
-        commit_hash, _ = get_head(silo_dir)
-        if not commit_hash:
-            err("no commits yet")
-            return
-    else:
-        resolved = resolve_ref(silo_dir, commit_hash)
-        if resolved:
-            commit_hash = resolved
-
-    c = load_commit(silo_dir, commit_hash)
+    commit_hash, c = resolve_commit(silo_dir, commit_hash)
     if not c:
-        err("commit not found")
+        err("no commits yet" if not commit_hash else "commit not found")
         return
 
     parent_tree = {}
@@ -430,18 +408,18 @@ def show(commit_hash):
 
     click.echo(f"commit {t(c.hash, 'hash')}")
     click.echo(f"Author: {c.author}")
+    for co in c.co_authors:
+        click.echo(f"Co-authored-by: {co}")
     click.echo(f"Date:   {ts}")
     if c.branch:
         click.echo(f"Branch: {t(c.branch, 'branch')}")
     click.echo("")
     click.echo(f"    {c.message}")
-    if c.co_authors:
-        click.echo(f"    Co-authored-by: {', '.join(c.co_authors)}")
     click.echo("")
     click.echo(f"{len(a) + len(m) + len(r)} file(s) changed:")
     for f in sorted(a):
-        click.echo(f"  {t('+', 'added')} {f}")
+        click.echo(f"  {t('+', 'added')} {t(f, 'file')}")
     for f in sorted(m):
-        click.echo(f"  {t('~', 'modified')} {f}")
+        click.echo(f"  {t('~', 'modified')} {t(f, 'file')}")
     for f in sorted(r):
-        click.echo(f"  {t('-', 'removed')} {f}")
+        click.echo(f"  {t('-', 'removed')} {t(f, 'file')}")

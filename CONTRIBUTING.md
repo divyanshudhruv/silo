@@ -51,7 +51,7 @@ src/silo/
     core.py      # init, commit, status, log, diff, show, amend
     import_.py   # import git/gh
     note.py      # note commands
-    ops.py       # snapshot, purge, cleanup, gc, verify, info
+    ops.py       # snapshot, reinit, cleanup, gc, verify, info
     stash.py     # stash commands
     tag.py       # tag commands
     vcs.py       # branch, switch, reset

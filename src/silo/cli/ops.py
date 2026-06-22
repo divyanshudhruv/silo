@@ -1,15 +1,19 @@
 import time
+import fnmatch
 import shutil
 import tarfile
+from pathlib import Path
 
 import click
 
-from ..engine import scan_tree, load_blob
+from ..engine import load_blob
 from ..database import (
-    init_db, list_commits, list_commits_meta,
+    init_db, list_commits, list_commits_meta, list_notes,
     log_action, get_config, save_config, list_tags, list_branches,
-    get_branch, load_tag, load_commit, get_head, delete_tag,
+    get_branch, load_tag, save_tag, delete_tag, walk_parents, get_head,
+    load_note, delete_note, save_note,
 )
+from ..models import Note
 from ..utils import readable_time, load_ignore_patterns
 from ..theme import ok, err, t
 from ._common import require_silo
@@ -31,15 +35,37 @@ def _clean_orphans(silo_dir, valid_hashes):
     dropped_notes = 0
     notes_dir = silo_dir / "notes"
     if notes_dir.exists():
-        for f in notes_dir.iterdir():
-            if f.stem not in valid_hashes:
-                f.unlink()
-                dropped_notes += 1
+        for f in list(notes_dir.iterdir()):
+            if f.suffix == ".json":
+                note = load_note(silo_dir, f.stem)
+                if note and note.commits:
+                    valid = [c for c in note.commits if load_commit(silo_dir, c)]
+                    if not valid:
+                        f.unlink()
+                        dropped_notes += 1
+                    elif len(valid) < len(note.commits):
+                        note.commits = valid
+                        f.write_text(note.to_json())
+                elif note and not note.commits:
+                    pass
+                else:
+                    f.unlink()
+                    dropped_notes += 1
 
     dropped_tags = 0
     for t_name in list_tags(silo_dir):
-        th = load_tag(silo_dir, t_name)
-        if th and th not in valid_hashes:
+        tag_obj = load_tag(silo_dir, t_name)
+        if tag_obj and tag_obj.commits:
+            valid = [c for c in tag_obj.commits if load_commit(silo_dir, c)]
+            if not valid:
+                delete_tag(silo_dir, t_name)
+                dropped_tags += 1
+            elif len(valid) < len(tag_obj.commits):
+                tag_obj.commits = valid
+                save_tag(silo_dir, tag_obj)
+        elif tag_obj and not tag_obj.commits:
+            pass
+        else:
             delete_tag(silo_dir, t_name)
             dropped_tags += 1
 
@@ -52,26 +78,37 @@ def _clean_orphans(silo_dir, valid_hashes):
     return freed, dropped_notes, dropped_tags
 
 
+# Need load_commit for _clean_orphans
+from ..database import load_commit
+
+
 @click.command(help="Create a compressed archive of the project")
-def snapshot():
+@click.option("--noignore", is_flag=True, help="Ignore .siloignore and archive all files")
+def snapshot(noignore):
     silo_dir = require_silo()
     if not silo_dir:
         return
 
     project_dir = silo_dir.parent
-    ignore = load_ignore_patterns(silo_dir)
+    ignore = [] if noignore else load_ignore_patterns(silo_dir)
     ts = time.strftime("%Y%m%d_%H%M%S")
     archive_name = project_dir.name + f"_snapshot_{ts}"
     dest = project_dir.parent / archive_name
+    prefix = project_dir.name + "/"
 
     def filter_tar(ti):
         name = ti.name.replace("\\", "/")
-        if name.startswith(".silo/") or name.startswith(".git/"):
+        if not name.startswith(prefix):
+            return ti
+        rel = name[len(prefix):]
+        if rel.startswith(".silo/") or rel == ".silo" or rel.startswith(".git/") or rel == ".git":
             return None
         for pat in ignore:
-            if pat.endswith("/") and name.startswith(pat):
-                return None
-            if ti.name.endswith(pat.replace("*", "")):
+            if pat.endswith("/"):
+                base = pat.rstrip("/")
+                if rel == base or rel.startswith(base + "/"):
+                    return None
+            elif fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(Path(ti.name).name, pat):
                 return None
         return ti
 
@@ -82,8 +119,8 @@ def snapshot():
     ok(f"snapshot saved to {t(f'{dest}.tar.gz', 'file')}")
 
 
-@click.command(help="Erase all silo history and start fresh")
-def purge():
+@click.command("reinit", help="Erase all silo history and reinitialize")
+def reinit():
     silo_dir = require_silo()
     if not silo_dir:
         return
@@ -97,8 +134,8 @@ def purge():
         if db.exists():
             db.unlink()
         init_db(silo_dir)
-        log_action(silo_dir, "purge", "all history cleared")
-        ok("history purged")
+        log_action(silo_dir, "reinit", "all history reinitialized")
+        ok("history reinitialized")
 
 
 @click.command(help="Remove orphaned objects, stale notes/tags, and empty stashes")
@@ -178,13 +215,16 @@ def info():
     stash_dir = silo_dir / "stash"
     stash_count = len([d for d in stash_dir.iterdir() if d.is_dir()]) if stash_dir.exists() else 0
 
+    notes = list_notes(silo_dir)
+
     head_hash, cur_branch = get_head(silo_dir)
 
     click.echo(f"Repository: {t(silo_dir.parent.name, 'file')}")
     click.echo(f"Commits:    {t(str(len(commits)), 'hash')}")
     click.echo(f"Branches:   {t(str(len(branches)), 'branch')}")
     click.echo(f"Current:    {t(cur_branch or 'detached', 'branch')}")
-    click.echo(f"Tags:       {t(str(len(tag_names)), 'file')}")
+    click.echo(f"Tags:       {t(str(len(tag_names)), 'tag')}")
+    click.echo(f"Notes:      {t(str(len(notes)), 'hash')}")
     click.echo(f"Stashes:    {t(str(stash_count), 'file')}")
     click.echo(f"Objects:    {t(str(obj_count), 'hash')} ({t(_fmt_size(obj_size), 'dim')})")
 
@@ -213,17 +253,16 @@ def gc(force):
     reachable = set()
     for b in list_branches(silo_dir):
         bh = get_branch(silo_dir, b)
-        if bh:
-            reachable.add(bh)
-            c = load_commit(silo_dir, bh)
-            while c and c.parent:
-                reachable.add(c.parent)
-                c = load_commit(silo_dir, c.parent)
+        if bh and bh not in reachable:
+            reachable.update(walk_parents(silo_dir, bh))
 
     for t_name in list_tags(silo_dir):
-        th = load_tag(silo_dir, t_name)
-        if th:
-            reachable.add(th)
+        tag_obj = load_tag(silo_dir, t_name)
+        if tag_obj:
+            reachable.update(tag_obj.commits)
+
+    for note in list_notes(silo_dir):
+        reachable.update(note.commits)
 
     dropped_commits = 0
     for c in commits:

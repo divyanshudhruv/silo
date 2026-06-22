@@ -46,14 +46,39 @@ def _import_commit(git_path, silo_dir, commit_hash):
 
     tree = {}
     contents = {}
-    for path, blob_hash in git_tree.items():
-        res = subprocess.run(
-            ["git", "cat-file", "-p", blob_hash],
-            cwd=str(git_path), capture_output=True
-        )
-        if res.returncode != 0:
+    paths = list(git_tree.keys())
+    if not paths:
+        return tree, contents
+
+    blob_hashes = [git_tree[p] for p in paths]
+    proc = subprocess.Popen(
+        ["git", "cat-file", "--batch"],
+        cwd=str(git_path), stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    )
+    stdin_data = "".join(f"{h}\n" for h in blob_hashes).encode()
+    stdout_data, _ = proc.communicate(stdin_data)
+
+    pos = 0
+    buf = stdout_data
+    for path, blob_hash in zip(paths, blob_hashes):
+        # Read header line: "<hash> <type> <size>\n"
+        header_end = buf.find(b"\n", pos)
+        if header_end == -1:
+            break
+        header = buf[pos:header_end].decode()
+        pos = header_end + 1
+        hdr_parts = header.split(" ")
+        if len(hdr_parts) < 3:
             continue
-        data = res.stdout
+        _, obj_type, size_str = hdr_parts
+        if obj_type == "missing":
+            continue
+        size = int(size_str)
+        data = buf[pos:pos + size]
+        pos += size
+        if pos < len(buf) and buf[pos] == ord("\n"):
+            pos += 1
         h = hashlib.sha256(data).hexdigest()
         tree[path] = h
         contents[path] = data

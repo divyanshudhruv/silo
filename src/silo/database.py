@@ -1,10 +1,11 @@
 import sqlite3
 import time
+import hashlib
 from pathlib import Path
 
 import click
 
-from .models import Commit, Config
+from .models import Commit, Config, Tag, Note
 from .utils import ensure_dirs, read_json, write_json
 from .theme import warn
 
@@ -96,6 +97,18 @@ def save_commit(silo_dir, commit, conn=None):
             conn.close()
 
 
+def resolve_commit(silo_dir, ref=None):
+    if not ref:
+        h, _ = get_head(silo_dir)
+        if not h:
+            return None, None
+        return h, load_commit(silo_dir, h)
+    r = resolve_ref(silo_dir, ref)
+    if not r:
+        return None, None
+    return r, load_commit(silo_dir, r)
+
+
 def resolve_ref(silo_dir, ref):
     if not ref:
         return None
@@ -146,14 +159,41 @@ def find_commit(silo_dir, h):
     return None
 
 
-def load_commit(silo_dir, h):
+from functools import lru_cache
+
+
+@lru_cache(maxsize=256)
+def _load_commit_raw(silo_dir, h):
     p = silo_dir / "commits" / f"{h}.json"
     if not p.exists():
         return None
     return Commit.from_json(p.read_text())
 
 
-def list_commits(silo_dir):
+def load_commit(silo_dir, h):
+    return _load_commit_raw(silo_dir, h)
+
+
+def list_commits(silo_dir, _from_sqlite=True):
+    if _from_sqlite:
+        try:
+            conn = sqlite3.connect(str(silo_dir / "index.db"))
+            try:
+                cur = conn.execute("SELECT hash FROM commits_index ORDER BY timestamp DESC")
+                rows = cur.fetchall()
+            except sqlite3.OperationalError:
+                rows = None
+            finally:
+                conn.close()
+            if rows:
+                commits = []
+                for (h,) in rows:
+                    c = load_commit(silo_dir, h)
+                    if c:
+                        commits.append(c)
+                return commits
+        except Exception:
+            pass
     commits_dir = silo_dir / "commits"
     if not commits_dir.exists():
         return []
@@ -179,7 +219,19 @@ def list_commits_meta(silo_dir):
             return [Commit(hash=r[0], message=r[1], timestamp=r[2], author=r[3], branch=r[4], tree={}, parent=None) for r in rows]
     except sqlite3.OperationalError:
         pass
-    return list_commits(silo_dir)
+    return list_commits(silo_dir, _from_sqlite=False)
+
+
+def walk_parents(silo_dir, start_hash):
+    hashes = set()
+    cur = start_hash
+    while cur:
+        hashes.add(cur)
+        c = load_commit(silo_dir, cur)
+        if not c or not c.parent:
+            break
+        cur = c.parent
+    return hashes
 
 
 def get_head(silo_dir):
@@ -255,16 +307,32 @@ def log_action(silo_dir, action, msg=""):
         f.write(f"[{ts}] {action} {msg}\n")
 
 
+# --- Tags ---
+
+def _migrate_tag(silo_dir, name):
+    old_p = silo_dir / "tags" / name
+    new_p = silo_dir / "tags" / f"{name}.json"
+    if old_p.exists() and not new_p.exists():
+        h = old_p.read_text().strip()
+        tag = Tag(name=name, commits=[h] if h else [], timestamp=time.time())
+        new_p.write_text(tag.to_json())
+        old_p.unlink()
+        return tag
+    return None
+
+
 def save_tag(silo_dir, tag):
-    tags_dir = silo_dir / "tags"
-    ensure_dirs(tags_dir)
-    (tags_dir / tag.name).write_text(tag.commit_hash)
+    ensure_dirs(silo_dir / "tags")
+    (silo_dir / "tags" / f"{tag.name}.json").write_text(tag.to_json())
 
 
 def load_tag(silo_dir, name):
-    p = silo_dir / "tags" / name
+    migrated = _migrate_tag(silo_dir, name)
+    if migrated:
+        return migrated
+    p = silo_dir / "tags" / f"{name}.json"
     if p.exists():
-        return p.read_text().strip()
+        return Tag.from_json(p.read_text())
     return None
 
 
@@ -272,11 +340,15 @@ def list_tags(silo_dir):
     tags_dir = silo_dir / "tags"
     if not tags_dir.exists():
         return []
-    return sorted(t.name for t in tags_dir.iterdir() if t.is_file())
+    # Migrate any old-format tags
+    for f in list(tags_dir.iterdir()):
+        if f.is_file() and f.suffix == "":
+            _migrate_tag(silo_dir, f.name)
+    return sorted(f.stem for f in tags_dir.iterdir() if f.is_file() and f.suffix == ".json")
 
 
 def delete_tag(silo_dir, name):
-    p = silo_dir / "tags" / name
+    p = silo_dir / "tags" / f"{name}.json"
     if p.exists():
         p.unlink()
         return True
@@ -284,8 +356,8 @@ def delete_tag(silo_dir, name):
 
 
 def rename_tag(silo_dir, old_name, new_name):
-    old_p = silo_dir / "tags" / old_name
-    new_p = silo_dir / "tags" / new_name
+    old_p = silo_dir / "tags" / f"{old_name}.json"
+    new_p = silo_dir / "tags" / f"{new_name}.json"
     if not old_p.exists():
         return False
     if new_p.exists():
@@ -294,36 +366,86 @@ def rename_tag(silo_dir, old_name, new_name):
     return True
 
 
+# --- Notes ---
+
+def _note_hash(text):
+    return hashlib.sha256(f"{text}{time.time_ns()}".encode()).hexdigest()
+
+
+def _migrate_note(silo_dir, f):
+    h = f.stem
+    text = f.read_text().strip()
+    ts = time.time()
+    note_hash = hashlib.sha256(f"{text}{ts}{h}".encode()).hexdigest()
+    note = Note(hash=note_hash, text=text, commits=[h], timestamp=ts)
+    new_p = silo_dir / "notes" / f"{note_hash}.json"
+    new_p.write_text(note.to_json())
+    f.unlink()
+    return note
+
+
 def save_note(silo_dir, note):
-    notes_dir = silo_dir / "notes"
-    ensure_dirs(notes_dir)
-    p = notes_dir / f"{note.commit_hash}.txt"
-    with open(p, "w") as f:
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {note.text}\n")
+    ensure_dirs(silo_dir / "notes")
+    (silo_dir / "notes" / f"{note.hash}.json").write_text(note.to_json())
 
 
-def load_note(silo_dir, commit_hash):
-    p = silo_dir / "notes" / f"{commit_hash}.txt"
+def load_note(silo_dir, note_hash):
+    p = silo_dir / "notes" / f"{note_hash}.json"
     if p.exists():
-        return p.read_text().strip()
+        return Note.from_json(p.read_text())
     return None
 
 
-def delete_note(silo_dir, commit_hash):
-    p = silo_dir / "notes" / f"{commit_hash}.txt"
+def list_notes(silo_dir):
+    notes_dir = silo_dir / "notes"
+    if not notes_dir.exists():
+        return []
+    result = []
+    for f in sorted(notes_dir.iterdir()):
+        if f.is_file():
+            if f.suffix == ".json":
+                result.append(Note.from_json(f.read_text()))
+            elif f.suffix == ".txt":
+                result.append(_migrate_note(silo_dir, f))
+    return result
+
+
+def delete_note(silo_dir, note_hash):
+    p = silo_dir / "notes" / f"{note_hash}.json"
     if p.exists():
         p.unlink()
         return True
     return False
 
 
-def update_note(silo_dir, commit_hash, text):
-    notes_dir = silo_dir / "notes"
-    ensure_dirs(notes_dir)
-    p = notes_dir / f"{commit_hash}.txt"
-    p.write_text(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {text}\n")
+def update_note(silo_dir, note_hash, text):
+    note = load_note(silo_dir, note_hash)
+    if not note:
+        return False
+    note.text = text
+    note.timestamp = time.time()
+    save_note(silo_dir, note)
     return True
 
+
+# --- Helpers for amend ---
+
+def replace_commit_in_tags_notes(silo_dir, old_hash, new_hash):
+    for name in list_tags(silo_dir):
+        tag = load_tag(silo_dir, name)
+        if tag and old_hash in tag.commits:
+            tag.commits = [new_hash if c == old_hash else c for c in tag.commits]
+            tag.timestamp = time.time()
+            save_tag(silo_dir, tag)
+
+    for note in list_notes(silo_dir):
+        if old_hash in note.commits:
+            note.commits = [new_hash if c == old_hash else c for c in note.commits]
+            note.timestamp = time.time()
+            save_note(silo_dir, note)
+
+
+# --- Config ---
 
 def get_global_config_dir():
     return Path(click.get_app_dir("silo"))

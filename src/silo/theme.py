@@ -1,3 +1,5 @@
+import os
+
 import click
 
 STYLES = {
@@ -11,12 +13,19 @@ STYLES = {
     "modified": {"fg": "yellow"},
     "removed": {"fg": "red"},
     "highlight": {"fg": "cyan"},
+    "tag": {"fg": "green"},
     "dim": {"fg": "white"},
     "ok": {"fg": "green"},
+    "command": {"fg": "cyan"},
+    "option": {"fg": "yellow"},
 }
+
+_NO_COLOR = os.environ.get("NO_COLOR") == "1"
 
 
 def t(text, key):
+    if _NO_COLOR:
+        return text
     return click.style(text, **STYLES.get(key, {}))
 
 
@@ -29,4 +38,4 @@ def err(msg):
 
 
 def warn(msg):
-    click.echo(t("silo:", "warn") + " " + msg)
+    click.echo(t("silo:", "warn") + " " + msg, err=True)

@@ -1,11 +1,18 @@
+import shutil
+import sys
+
 import click
 
 from ..theme import ok, err, t
 from ._common import require_silo
 
 
-HOOK = """#!/bin/sh
-silo commit "auto: $(git log -1 --format=%s)" --co "$(git log -1 --format='%an <%ae>')" >/dev/null 2>&1 || true
+def _hook_content():
+    exe = shutil.which("silo")
+    if not exe:
+        exe = f"{sys.executable} -m silo"
+    return f"""#!/bin/sh
+{exe} commit "auto: $(git log -1 --format=%s)" --co "$(git log -1 --format='%an <%ae>')" >/dev/null 2>&1 || true
 """
 
 
@@ -36,7 +43,7 @@ def bridge_enable():
     hooks_dir.mkdir(parents=True, exist_ok=True)
     hook_path = hooks_dir / "post-commit"
 
-    hook_path.write_text(HOOK)
+    hook_path.write_text(_hook_content())
     try:
         hook_path.chmod(0o755)
     except Exception:

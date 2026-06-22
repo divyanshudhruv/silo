@@ -1,7 +1,7 @@
 import click
 
 from ..utils import find_silo_dir
-from ..theme import err
+from ..theme import t, err
 
 
 class ColorGroup(click.Group):
@@ -21,7 +21,7 @@ class ColorGroup(click.Group):
             commands.append((sub, cmd))
         if commands:
             limit = formatter.width - 6 - max(len(c[0]) for c in commands)
-            rows = [(click.style(s, fg="cyan"), cmd.get_short_help_str(limit))
+            rows = [(t(s, "command"), cmd.get_short_help_str(limit))
                     for s, cmd in commands]
             with formatter.section("Commands"):
                 formatter.write_dl(rows)
@@ -31,7 +31,7 @@ class ColorGroup(click.Group):
         for param in self.get_params(ctx):
             rv = param.get_help_record(ctx)
             if rv is not None:
-                opts.append((click.style(rv[0], fg="yellow"), rv[1] if len(rv) > 1 else ""))
+                opts.append((t(rv[0], "option"), rv[1] if len(rv) > 1 else ""))
         if opts:
             with formatter.section("Options"):
                 formatter.write_dl(opts)

@@ -8,6 +8,7 @@ CONFIG_SCHEMA = {
     "email": str,
     "frozen": str,
     "theme": str,
+    "usegitignore": str,
 }
 
 
@@ -34,15 +35,32 @@ class Commit:
 @dataclass
 class Tag:
     name: str
-    commit_hash: str
+    commits: list = field(default_factory=list)
     timestamp: float = 0.0
+
+    def to_json(self):
+        return json.dumps(asdict(self), indent=2)
+
+    @classmethod
+    def from_json(cls, s):
+        d = json.loads(s)
+        return cls(**d)
 
 
 @dataclass
 class Note:
-    commit_hash: str
+    hash: str
     text: str
+    commits: list = field(default_factory=list)
     timestamp: float = 0.0
+
+    def to_json(self):
+        return json.dumps(asdict(self), indent=2)
+
+    @classmethod
+    def from_json(cls, s):
+        d = json.loads(s)
+        return cls(**d)
 
 
 @dataclass

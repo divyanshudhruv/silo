@@ -1,7 +1,11 @@
 import json
 import hashlib
 import fnmatch
+from datetime import datetime
 from pathlib import Path
+
+
+_ALWAYS_EXCLUDE = {".silo", ".git", "__pycache__"}
 
 
 def _try_read(path):
@@ -14,7 +18,17 @@ def _try_read(path):
 
 
 def load_ignore_patterns(silo_dir):
-    p = silo_dir.parent / ".siloignore"
+    config_path = silo_dir / "config.json"
+    use_gitignore = False
+    if config_path.exists():
+        try:
+            cfg = json.loads(config_path.read_text())
+            use_gitignore = cfg.get("usegitignore", "false") == "true"
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    ignore_file = ".gitignore" if use_gitignore else ".siloignore"
+    p = silo_dir.parent / ignore_file
     patterns = []
     if p.exists():
         for line in _try_read(p).splitlines():
@@ -24,36 +38,72 @@ def load_ignore_patterns(silo_dir):
     return patterns
 
 
-def walk_files(dir_path, ignore_patterns=None):
-    p = Path(dir_path)
-    for f in p.rglob("*"):
-        if not f.is_file():
-            continue
-        rel = f.relative_to(p)
-        parts = rel.parts
-        if any(part.startswith(".silo") for part in parts):
-            continue
-        if any(part == ".git" for part in parts):
-            continue
-        if any(part == "__pycache__" for part in parts):
-            continue
-        if f.suffix == ".pyc":
-            continue
-        if ignore_patterns:
-            rel_str = str(rel.as_posix())
-            skip = False
-            for pat in ignore_patterns:
-                if pat.endswith("/"):
-                    base = pat.rstrip("/")
-                    if rel_str == base or rel_str.startswith(base + "/"):
-                        skip = True
-                        break
-                elif fnmatch.fnmatch(rel_str, pat) or fnmatch.fnmatch(Path(rel_str).name, pat):
+def _dir_match(rel_path, patterns):
+    for pat in patterns:
+        if pat.endswith("/"):
+            base = pat.rstrip("/")
+            if rel_path == base or rel_path.startswith(base + "/"):
+                return True
+    return False
+
+
+def filter_ignored(paths, ignore_patterns):
+    """Return only paths that do NOT match ignore patterns (or _ALWAYS_EXCLUDE dirs)."""
+    if not ignore_patterns:
+        return list(paths)
+    result = []
+    for rel in paths:
+        skip = False
+        for pat in ignore_patterns:
+            if pat.endswith("/"):
+                base = pat.rstrip("/")
+                if rel == base or rel.startswith(base + "/"):
                     skip = True
                     break
-            if skip:
-                continue
-        yield f
+            elif fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(Path(rel).name, pat):
+                skip = True
+                break
+        if not skip:
+            parts = rel.split("/")
+            if any(p in _ALWAYS_EXCLUDE for p in parts[:-1]):
+                skip = True
+        if not skip:
+            result.append(rel)
+    return result
+
+
+def walk_files(dir_path, ignore_patterns=None):
+    root = Path(dir_path)
+    stack = [root]
+    while stack:
+        d = stack.pop()
+        try:
+            entries = list(d.iterdir())
+        except PermissionError:
+            continue
+        dirs = []
+        for entry in entries:
+            if entry.is_dir():
+                if entry.name in _ALWAYS_EXCLUDE:
+                    continue
+                rel_dir = str(entry.relative_to(root).as_posix())
+                if ignore_patterns and _dir_match(rel_dir, ignore_patterns):
+                    continue
+                dirs.append(entry)
+            elif entry.is_file():
+                rel = str(entry.relative_to(root).as_posix())
+                if ignore_patterns:
+                    skip = False
+                    for pat in ignore_patterns:
+                        if pat.endswith("/"):
+                            continue
+                        if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(entry.name, pat):
+                            skip = True
+                            break
+                    if skip:
+                        continue
+                yield entry
+        stack.extend(reversed(dirs))
 
 
 def hash_file(path):
@@ -88,5 +138,4 @@ def find_silo_dir(start="."):
 
 
 def readable_time(t):
-    from datetime import datetime
     return datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")
