@@ -18,6 +18,7 @@ STYLES = {
     "ok": {"fg": "green"},
     "command": {"fg": "cyan"},
     "option": {"fg": "yellow"},
+    "auto": {"fg": "black", "bg": "yellow"},
 }
 
 _NO_COLOR = os.environ.get("NO_COLOR") == "1"

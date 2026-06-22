@@ -23,6 +23,12 @@ from ..theme import ok, err, t
 from ._common import require_silo
 
 
+def _fmt_message(msg):
+    if msg.startswith("auto:"):
+        return t(" auto ", "auto") + msg[5:]
+    return msg
+
+
 def _annotations(silo_dir):
     tag_map = {}
     for name in list_tags(silo_dir):
@@ -232,14 +238,14 @@ def log(oneline, graph, author, since, grep, n):
     for c in commits:
         ts = readable_time(c.timestamp)
         if oneline:
-            click.echo(f"{t(c.hash[:8], 'hash')} {c.message}")
+            click.echo(f"{t(c.hash[:8], 'hash')} {_fmt_message(c.message)}")
         elif graph:
             sym = "*" if c.hash == head_hash else "o"
             marker = t(sym, "highlight") + " " + t(c.hash[:8], "hash")
             ref = ""
             if c.branch:
                 ref = f" ({t(c.branch, 'branch')})"
-            click.echo(f"  {marker}{ref} {c.message}")
+            click.echo(f"  {marker}{ref} {_fmt_message(c.message)}")
             click.echo(f"  {t('|', 'dim')}  {ts}")
         else:
             click.echo(f"commit {t(c.hash, 'hash')}")
@@ -258,7 +264,7 @@ def log(oneline, graph, author, since, grep, n):
                     click.echo(f"Notes:  {t(h, 'hash')} {text}")
             click.echo(f"Date:   {ts}")
             click.echo("")
-            click.echo(f"    {c.message}")
+            click.echo(f"    {_fmt_message(c.message)}")
             click.echo("")
 
 
@@ -453,7 +459,7 @@ def show(commit_hash):
     if c.branch:
         click.echo(f"Branch: {t(c.branch, 'branch')}")
     click.echo("")
-    click.echo(f"    {c.message}")
+    click.echo(f"    {_fmt_message(c.message)}")
     click.echo("")
     click.echo(f"{len(a) + len(m) + len(r)} file(s) changed:")
     for f in sorted(a):
