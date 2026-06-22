@@ -56,7 +56,7 @@ silo status --noignore
 silo log [--oneline] [--graph] [--author <name>] [--since <date>] [--grep <pattern>] [-n <count>]
 ```
 
-Show commit history.
+Show commit history. Full format includes attached tags and notes per commit.
 
 ```
 silo log                        # full log
@@ -101,7 +101,7 @@ silo diff --noignore
 silo show [<ref>]
 ```
 
-Show commit details (hash, author, date, branch, message) and file changes (added/modified/deleted with full paths). Defaults to HEAD.
+Show commit details (hash, author, date, branch, message, attached tags and notes) and file changes (added/modified/deleted with full paths). Defaults to HEAD.
 
 ```
 silo show
@@ -209,8 +209,10 @@ Manage tags. Subcommand-only (no `-d`/`-m` flags).
 
 ```
 silo tag create <name>                       # create unattached tag
-silo tag weld <name> <hash>                  # attach tag to a commit
-silo tag unweld <name> <hash>                # detach tag from a commit
+silo tag weld <name> [<hash>]                # attach tag to a commit
+silo tag weld <name> --branch <branch>       # attach to ALL commits on a branch
+silo tag unweld <name> [<hash>]              # detach tag from a commit
+silo tag unweld <name> --branch <branch>     # detach from ALL commits on a branch
 silo tag add <name> [<ref>]                  # create and attach in one step
 silo tag list                                # list all tags
 silo tag show <name>                         # show tag details + commits
@@ -218,14 +220,16 @@ silo tag delete <name>                       # delete a tag
 silo tag rename <old> <new>                  # rename a tag
 ```
 
-Tags can be attached to multiple commits. A tag without welded commits displays as `(unattached)`.
+Tags can be attached to multiple commits. A tag without welded commits displays as `(unattached)`. Use `--branch` to weld/unweld to every commit on a branch at once.
 
 ```
 silo tag create v1.0
 silo tag weld v1.0 abc1234
 silo tag weld v1.0 def5678
+silo tag weld v1.0 --branch main      # attaches to all commits on main
 silo tag unweld v1.0 def5678
-silo tag add v2.0                  # attach to HEAD
+silo tag unweld v1.0 --branch main    # detaches from all commits on main
+silo tag add v2.0                     # attach to HEAD
 silo tag add v2.0 abc1234
 silo tag list
 silo tag show v1.0
@@ -241,8 +245,10 @@ Manage notes. Subcommand-only (no `-d`/`-m` flags).
 
 ```
 silo note create "<text>"                    # create unattached note
-silo note weld <hash> <commit>               # attach note to a commit
-silo note unweld <hash> <commit>             # detach note from a commit
+silo note weld <hash> [<commit>]             # attach note to a commit
+silo note weld <hash> --branch <branch>      # attach to ALL commits on a branch
+silo note unweld <hash> [<commit>]           # detach note from a commit
+silo note unweld <hash> --branch <branch>    # detach from ALL commits on a branch
 silo note add "<text>" [<ref>]               # create and attach in one step
 silo note list                               # list all notes
 silo note show <hash>                        # show note details + commits
@@ -250,13 +256,15 @@ silo note delete <hash>                      # delete a note
 silo note edit <hash> "<text>"               # replace note text
 ```
 
-Notes are identified by an auto-generated hash. Each note can be attached to multiple commits. A note without welded commits displays as `(unattached)`.
+Notes are identified by an auto-generated hash. Each note can be attached to multiple commits. Use `--branch` to weld/unweld to every commit on a branch at once.
 
 ```
 silo note create "review this later"
 silo note weld <hash> abc1234
+silo note weld <hash> --branch main     # attaches to all commits on main
 silo note unweld <hash> abc1234
-silo note add "initial commit note"          # attach to HEAD
+silo note unweld <hash> --branch main   # detaches from all commits on main
+silo note add "initial commit note"     # attach to HEAD
 silo note add "bug report" abc1234
 silo note list
 silo note show <hash>

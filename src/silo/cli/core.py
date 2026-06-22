@@ -14,11 +14,30 @@ from ..database import (
     save_commit, load_commit, resolve_commit, list_commits, list_commits_meta,
     get_head, set_head, log_action, get_config,
     replace_commit_in_tags_notes,
+    list_tags, load_tag, resolve_tag_commits,
+    list_notes, load_note, resolve_note_commits,
 )
-from ..models import Commit
+from ..models import Commit, Note
 from ..utils import ensure_dirs, readable_time, load_ignore_patterns, filter_ignored
 from ..theme import ok, err, t
 from ._common import require_silo
+
+
+def _annotations(silo_dir):
+    tag_map = {}
+    for name in list_tags(silo_dir):
+        tag = load_tag(silo_dir, name)
+        if tag:
+            for h in resolve_tag_commits(silo_dir, tag):
+                tag_map.setdefault(h, []).append(name)
+
+    note_map = {}
+    for note in list_notes(silo_dir):
+        for h in resolve_note_commits(silo_dir, note):
+            preview = note.text[:40] + ("..." if len(note.text) > 40 else "")
+            note_map.setdefault(h, []).append(f"{note.hash[:8]} {preview}")
+
+    return tag_map, note_map
 
 
 @click.command(help="Initialize a new silo repository in a directory")
@@ -208,6 +227,8 @@ def log(oneline, graph, author, since, grep, n):
         ok("no matching commits")
         return
 
+    tag_map, note_map = _annotations(silo_dir)
+
     for c in commits:
         ts = readable_time(c.timestamp)
         if oneline:
@@ -227,6 +248,14 @@ def log(oneline, graph, author, since, grep, n):
             click.echo(f"Author: {c.author}")
             for co in c.co_authors:
                 click.echo(f"Co-author: {co}")
+            tags = tag_map.get(c.hash, [])
+            if tags:
+                click.echo(f"Tags:   {', '.join(t(tn, 'tag') for tn in tags)}")
+            notes = note_map.get(c.hash, [])
+            if notes:
+                for n in notes:
+                    h, _, text = n.partition(" ")
+                    click.echo(f"Notes:  {t(h, 'hash')} {text}")
             click.echo(f"Date:   {ts}")
             click.echo("")
             click.echo(f"    {c.message}")
@@ -406,10 +435,20 @@ def show(commit_hash):
     a, m, r = diff_trees(parent_tree, c.tree)
     ts = readable_time(c.timestamp)
 
+    tag_map, note_map = _annotations(silo_dir)
+
     click.echo(f"commit {t(c.hash, 'hash')}")
     click.echo(f"Author: {c.author}")
     for co in c.co_authors:
         click.echo(f"Co-authored-by: {co}")
+    tags = tag_map.get(c.hash, [])
+    if tags:
+        click.echo(f"Tags:   {', '.join(t(tn, 'tag') for tn in tags)}")
+    notes = note_map.get(c.hash, [])
+    if notes:
+        for n in notes:
+            h, _, text = n.partition(" ")
+            click.echo(f"Notes:  {t(h, 'hash')} {text}")
     click.echo(f"Date:   {ts}")
     if c.branch:
         click.echo(f"Branch: {t(c.branch, 'branch')}")

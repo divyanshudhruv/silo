@@ -11,7 +11,7 @@ from ..database import (
     init_db, list_commits, list_commits_meta, list_notes,
     log_action, get_config, save_config, list_tags, list_branches,
     get_branch, load_tag, save_tag, delete_tag, walk_parents, get_head,
-    load_note, delete_note, save_note,
+    load_note, delete_note, save_note, resolve_tag_commits, resolve_note_commits,
 )
 from ..models import Note
 from ..utils import readable_time, load_ignore_patterns
@@ -38,16 +38,19 @@ def _clean_orphans(silo_dir, valid_hashes):
         for f in list(notes_dir.iterdir()):
             if f.suffix == ".json":
                 note = load_note(silo_dir, f.stem)
-                if note and note.commits:
-                    valid = [c for c in note.commits if load_commit(silo_dir, c)]
-                    if not valid:
-                        f.unlink()
-                        dropped_notes += 1
-                    elif len(valid) < len(note.commits):
-                        note.commits = valid
-                        f.write_text(note.to_json())
-                elif note and not note.commits:
-                    pass
+                if note:
+                    if note.branch:
+                        pass
+                    elif note.commits:
+                        valid = [c for c in note.commits if load_commit(silo_dir, c)]
+                        if not valid:
+                            f.unlink()
+                            dropped_notes += 1
+                        elif len(valid) < len(note.commits):
+                            note.commits = valid
+                            f.write_text(note.to_json())
+                    else:
+                        pass
                 else:
                     f.unlink()
                     dropped_notes += 1
@@ -55,16 +58,19 @@ def _clean_orphans(silo_dir, valid_hashes):
     dropped_tags = 0
     for t_name in list_tags(silo_dir):
         tag_obj = load_tag(silo_dir, t_name)
-        if tag_obj and tag_obj.commits:
-            valid = [c for c in tag_obj.commits if load_commit(silo_dir, c)]
-            if not valid:
-                delete_tag(silo_dir, t_name)
-                dropped_tags += 1
-            elif len(valid) < len(tag_obj.commits):
-                tag_obj.commits = valid
-                save_tag(silo_dir, tag_obj)
-        elif tag_obj and not tag_obj.commits:
-            pass
+        if tag_obj:
+            if tag_obj.branch:
+                pass
+            elif tag_obj.commits:
+                valid = [c for c in tag_obj.commits if load_commit(silo_dir, c)]
+                if not valid:
+                    delete_tag(silo_dir, t_name)
+                    dropped_tags += 1
+                elif len(valid) < len(tag_obj.commits):
+                    tag_obj.commits = valid
+                    save_tag(silo_dir, tag_obj)
+            else:
+                pass
         else:
             delete_tag(silo_dir, t_name)
             dropped_tags += 1
@@ -259,10 +265,10 @@ def gc(force):
     for t_name in list_tags(silo_dir):
         tag_obj = load_tag(silo_dir, t_name)
         if tag_obj:
-            reachable.update(tag_obj.commits)
+            reachable.update(resolve_tag_commits(silo_dir, tag_obj))
 
     for note in list_notes(silo_dir):
-        reachable.update(note.commits)
+        reachable.update(resolve_note_commits(silo_dir, note))
 
     dropped_commits = 0
     for c in commits:

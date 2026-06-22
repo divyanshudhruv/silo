@@ -36,6 +36,7 @@ class Commit:
 class Tag:
     name: str
     commits: list = field(default_factory=list)
+    branch: str = ""
     timestamp: float = 0.0
 
     def to_json(self):
@@ -52,6 +53,7 @@ class Note:
     hash: str
     text: str
     commits: list = field(default_factory=list)
+    branch: str = ""
     timestamp: float = 0.0
 
     def to_json(self):

@@ -393,6 +393,11 @@ def load_note(silo_dir, note_hash):
     p = silo_dir / "notes" / f"{note_hash}.json"
     if p.exists():
         return Note.from_json(p.read_text())
+    notes_dir = silo_dir / "notes"
+    if notes_dir.exists():
+        for f in notes_dir.iterdir():
+            if f.suffix == ".json" and f.stem.startswith(note_hash):
+                return Note.from_json(f.read_text())
     return None
 
 
@@ -411,7 +416,10 @@ def list_notes(silo_dir):
 
 
 def delete_note(silo_dir, note_hash):
-    p = silo_dir / "notes" / f"{note_hash}.json"
+    note = load_note(silo_dir, note_hash)
+    if not note:
+        return False
+    p = silo_dir / "notes" / f"{note.hash}.json"
     if p.exists():
         p.unlink()
         return True
@@ -430,16 +438,34 @@ def update_note(silo_dir, note_hash, text):
 
 # --- Helpers for amend ---
 
+def resolve_tag_commits(silo_dir, tag):
+    if tag.branch:
+        h = get_branch(silo_dir, tag.branch)
+        if h:
+            return walk_parents(silo_dir, h)
+        return set()
+    return set(tag.commits)
+
+
+def resolve_note_commits(silo_dir, note):
+    if note.branch:
+        h = get_branch(silo_dir, note.branch)
+        if h:
+            return walk_parents(silo_dir, h)
+        return set()
+    return set(note.commits)
+
+
 def replace_commit_in_tags_notes(silo_dir, old_hash, new_hash):
     for name in list_tags(silo_dir):
         tag = load_tag(silo_dir, name)
-        if tag and old_hash in tag.commits:
+        if tag and old_hash in resolve_tag_commits(silo_dir, tag):
             tag.commits = [new_hash if c == old_hash else c for c in tag.commits]
             tag.timestamp = time.time()
             save_tag(silo_dir, tag)
 
     for note in list_notes(silo_dir):
-        if old_hash in note.commits:
+        if old_hash in resolve_note_commits(silo_dir, note):
             note.commits = [new_hash if c == old_hash else c for c in note.commits]
             note.timestamp = time.time()
             save_note(silo_dir, note)

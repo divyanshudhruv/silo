@@ -10,7 +10,9 @@ from ._common import require_silo
 def _hook_content():
     exe = shutil.which("silo")
     if not exe:
-        exe = f"{sys.executable} -m silo"
+        exe = f'"{sys.executable}" -m silo'
+    else:
+        exe = f'"{exe}"'
     return f"""#!/bin/sh
 {exe} commit "auto: $(git log -1 --format=%s)" --co "$(git log -1 --format='%an <%ae>')" >/dev/null 2>&1 || true
 """

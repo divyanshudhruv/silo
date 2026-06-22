@@ -5,7 +5,8 @@ import click
 
 from ..database import (
     resolve_commit, save_note, load_note, list_notes,
-    delete_note, update_note, log_action,
+    delete_note, update_note, get_branch, walk_parents,
+    resolve_note_commits, log_action,
 )
 from ..models import Note
 from ..theme import ok, err, t
@@ -31,10 +32,11 @@ def note_create(text):
     ok(f"created note {t(note_hash[:8], 'hash')} (unattached)")
 
 
-@note.command("weld", help="Attach note to a commit")
+@note.command("weld", help="Attach note to a commit or all commits on a branch")
 @click.argument("note_hash")
-@click.argument("commit_hash")
-def note_weld(note_hash, commit_hash):
+@click.argument("commit_hash", required=False)
+@click.option("--branch", "-b", help="Attach to all commits on this branch")
+def note_weld(note_hash, commit_hash, branch):
     silo_dir = require_silo()
     if not silo_dir:
         return
@@ -44,23 +46,43 @@ def note_weld(note_hash, commit_hash):
         err(f"note '{note_hash[:8]}' not found")
         return
 
-    _, c = resolve_commit(silo_dir, commit_hash)
-    if not c:
-        err(f"commit '{commit_hash}' not found")
-        return
+    if branch:
+        branch_hash = get_branch(silo_dir, branch)
+        if not branch_hash:
+            err(f"branch '{branch}' not found")
+            return
+        commits = walk_parents(silo_dir, branch_hash)
+        if not commits:
+            err(f"no commits on branch '{branch}'")
+            return
+        note_obj.commits = list(commits)
+        note_obj.branch = branch
+        note_obj.timestamp = time.time()
+        save_note(silo_dir, note_obj)
+        log_action(silo_dir, "note", f"welded {note_hash[:8]} -> branch '{branch}' ({len(commits)} commits)")
+        ok(f"welded note {t(note_hash[:8], 'hash')} to {t(str(len(commits)), 'hash')} commit(s) on branch '{t(branch, 'branch')}'")
+    else:
+        if not commit_hash:
+            err("provide a commit hash or --branch")
+            return
+        _, c = resolve_commit(silo_dir, commit_hash)
+        if not c:
+            err(f"commit '{commit_hash}' not found")
+            return
+        note_obj.branch = ""
+        if c.hash not in note_obj.commits:
+            note_obj.commits.append(c.hash)
+        note_obj.timestamp = time.time()
+        save_note(silo_dir, note_obj)
+        log_action(silo_dir, "note", f"welded {note_hash[:8]} -> {c.hash[:8]}")
+        ok(f"welded note {t(note_hash[:8], 'hash')} to {t(c.hash[:8], 'hash')}")
 
-    if c.hash not in note_obj.commits:
-        note_obj.commits.append(c.hash)
-    note_obj.timestamp = time.time()
-    save_note(silo_dir, note_obj)
-    log_action(silo_dir, "note", f"welded {note_hash[:8]} -> {c.hash[:8]}")
-    ok(f"welded note {t(note_hash[:8], 'hash')} to {t(c.hash[:8], 'hash')}")
 
-
-@note.command("unweld", help="Detach note from a commit")
+@note.command("unweld", help="Detach note from a commit or all commits on a branch")
 @click.argument("note_hash")
-@click.argument("commit_hash")
-def note_unweld(note_hash, commit_hash):
+@click.argument("commit_hash", required=False)
+@click.option("--branch", "-b", help="Detach from all commits on this branch")
+def note_unweld(note_hash, commit_hash, branch):
     silo_dir = require_silo()
     if not silo_dir:
         return
@@ -70,18 +92,33 @@ def note_unweld(note_hash, commit_hash):
         err(f"note '{note_hash[:8]}' not found")
         return
 
-    resolved, _ = resolve_commit(silo_dir, commit_hash)
-    target = resolved or commit_hash
-
-    if target not in note_obj.commits:
-        err(f"note {t(note_hash[:8], 'hash')} is not attached to {t(target[:8], 'hash')}")
-        return
-
-    note_obj.commits = [c for c in note_obj.commits if c != target]
-    note_obj.timestamp = time.time()
-    save_note(silo_dir, note_obj)
-    log_action(silo_dir, "note", f"unwelded {note_hash[:8]} from {target[:8]}")
-    ok(f"unwelded note {t(note_hash[:8], 'hash')} from {t(target[:8], 'hash')}")
+    if branch:
+        if note_obj.branch != branch:
+            err(f"note {t(note_hash[:8], 'hash')} is not welded to branch '{branch}'")
+            return
+        note_obj.commits = []
+        note_obj.branch = ""
+        note_obj.timestamp = time.time()
+        save_note(silo_dir, note_obj)
+        log_action(silo_dir, "note", f"unwelded {note_hash[:8]} from branch '{branch}'")
+        ok(f"unwelded note {t(note_hash[:8], 'hash')} from branch '{t(branch, 'branch')}'")
+    else:
+        if not commit_hash:
+            err("provide a commit hash or --branch")
+            return
+        resolved, _ = resolve_commit(silo_dir, commit_hash)
+        target = resolved or commit_hash
+        if note_obj.branch:
+            note_obj.commits = []
+            note_obj.branch = ""
+        if target not in note_obj.commits:
+            err(f"note {t(note_hash[:8], 'hash')} is not attached to {t(target[:8], 'hash')}")
+            return
+        note_obj.commits = [c for c in note_obj.commits if c != target]
+        note_obj.timestamp = time.time()
+        save_note(silo_dir, note_obj)
+        log_action(silo_dir, "note", f"unwelded {note_hash[:8]} from {target[:8]}")
+        ok(f"unwelded note {t(note_hash[:8], 'hash')} from {t(target[:8], 'hash')}")
 
 
 @note.command("add", help="Create note and attach to a commit")
@@ -116,10 +153,12 @@ def note_list():
         return
 
     for n in notes:
-        count = len(n.commits) if n.commits else 0
+        resolved = resolve_note_commits(silo_dir, n)
+        count = len(resolved)
         preview = n.text[:50] + ("..." if len(n.text) > 50 else "")
+        branch_info = f" [{t(n.branch, 'branch')}]" if n.branch else ""
         if count:
-            click.echo(f"{t(n.hash[:8], 'hash')} {preview} ({t(str(count), 'modified')} commit{'s' if count > 1 else ''})")
+            click.echo(f"{t(n.hash[:8], 'hash')} {preview} ({t(str(count), 'modified')} commit{'s' if count > 1 else ''}){branch_info}")
         else:
             click.echo(f"{t(n.hash[:8], 'hash')} {preview} ({t('unattached', 'dim')})")
 
@@ -138,9 +177,13 @@ def note_show(note_hash):
 
     click.echo(f"hash:   {t(note_obj.hash, 'hash')}")
     click.echo(f"text:   {note_obj.text}")
-    if note_obj.commits:
-        click.echo(f"commits ({len(note_obj.commits)}):")
-        for c in note_obj.commits:
+    if note_obj.branch:
+        click.echo(f"branch: {t(note_obj.branch, 'branch')}")
+    resolved = resolve_note_commits(silo_dir, note_obj)
+    if resolved:
+        sorted_c = sorted(resolved)
+        click.echo(f"commits ({len(sorted_c)}):")
+        for c in sorted_c:
             click.echo(f"  {t(c[:8], 'hash')}")
     else:
         click.echo(f"commits: (unattached)")
