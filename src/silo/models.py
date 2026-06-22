@@ -7,6 +7,7 @@ CONFIG_SCHEMA = {
     "name": str,
     "email": str,
     "frozen": str,
+    "theme": str,
 }
 
 
