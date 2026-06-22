@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from ..engine import scan_tree_with_content, snapshot_to_objects
+from ..engine import snapshot_to_objects
 from ..database import (
     init_db, get_db, update_index,
     save_commit, set_head, log_action, get_config, save_config,
@@ -13,6 +13,50 @@ from ..database import (
 from ..models import Commit
 from ..theme import ok, err, t
 from ._common import require_silo, ColorGroup
+
+
+def _git_tree(git_path, commit_hash):
+    result = subprocess.run(
+        ["git", "ls-tree", "-r", "-z", commit_hash],
+        cwd=str(git_path), capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        return None
+    tree = {}
+    for entry in result.stdout.strip("\x00").split("\x00"):
+        if not entry.strip():
+            continue
+        parts = entry.split("\t", 1)
+        if len(parts) != 2:
+            continue
+        meta, path = parts
+        # meta: "mode type hash"
+        blob_hash = meta.split()[-1]
+        tree[path] = blob_hash
+    return tree
+
+
+def _import_commit(git_path, silo_dir, commit_hash):
+    git_tree = _git_tree(git_path, commit_hash)
+    if git_tree is None:
+        return None, None, None
+
+    tree = {}
+    contents = {}
+    for path, blob_hash in git_tree.items():
+        res = subprocess.run(
+            ["git", "cat-file", "-p", blob_hash],
+            cwd=str(git_path), capture_output=True
+        )
+        if res.returncode != 0:
+            continue
+        data = res.stdout
+        h = hashlib.sha256(data).hexdigest()
+        tree[path] = h
+        contents[h] = data
+
+    snapshot_to_objects(silo_dir, tree, contents)
+    return tree, contents, None
 
 
 @click.group("import", cls=ColorGroup, help="Import history from Git or GitHub")
@@ -30,19 +74,21 @@ def git_cmd(git_dir):
 
     silo_dir = git_path / ".silo"
     if silo_dir.exists():
-        err(f"already has a silo repo: {git_path}")
-        return
+        if not click.confirm(t(f"silo already exists in {git_path}. reinitialize? existing data will be lost.", "warn")):
+            return
+        import shutil
+        for d in ["objects", "commits", "branches", "stash", "tags", "notes", "logs"]:
+            p = silo_dir / d
+            if p.exists():
+                shutil.rmtree(p)
+        db = silo_dir / "index.db"
+        if db.exists():
+            db.unlink()
 
     conn = init_db(silo_dir)
     conn.close()
     log_action(silo_dir, "import", f"from git: {git_path}")
     ok(f"importing {git_path} ...")
-
-    branch_result = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=str(git_path), capture_output=True, text=True
-    )
-    orig_branch = branch_result.stdout.strip() if branch_result.returncode == 0 else "master"
 
     result = subprocess.run(
         ["git", "log", "--first-parent", "--format=%H%n%ct%n%an <%ae>%n%s%n==SILO==="],
@@ -70,10 +116,9 @@ def git_cmd(git_dir):
         msg = "\n".join(lines[3:])
         last_author = author
 
-        subprocess.run(["git", "checkout", "--force", h_in],
-                      cwd=str(git_path), capture_output=True)
-        tree, contents = scan_tree_with_content(git_path)
-        snapshot_to_objects(silo_dir, tree, contents)
+        tree, contents, _ = _import_commit(git_path, silo_dir, h_in)
+        if tree is None:
+            continue
 
         parent = None
         if i > 0:
@@ -100,9 +145,6 @@ def git_cmd(git_dir):
         log_action(silo_dir, "commit", f"[{ch[:8]}] {msg}")
 
         click.echo(f"  [{t(f'{i+1}/{total}', 'highlight')}] {t(ch[:8], 'hash')} {msg[:50]}")
-
-    subprocess.run(["git", "checkout", orig_branch],
-                  cwd=str(git_path), capture_output=True)
 
     if last_author and "@" in last_author:
         import re
