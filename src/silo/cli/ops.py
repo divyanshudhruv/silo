@@ -11,7 +11,7 @@ from ..database import (
     init_db, list_commits, list_commits_meta, list_notes,
     log_action, get_config, save_config, list_tags, list_branches,
     get_branch, load_tag, save_tag, delete_tag, walk_parents, get_head,
-    load_note, delete_note, save_note, load_commit,
+    load_note, load_commit,
     resolve_tag_commits, resolve_note_commits,
 )
 from ..utils import load_ignore_patterns

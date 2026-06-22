@@ -106,14 +106,6 @@ def walk_files(dir_path, ignore_patterns=None):
         stack.extend(reversed(dirs))
 
 
-def hash_file(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def ensure_dirs(path):
     Path(path).mkdir(parents=True, exist_ok=True)
 

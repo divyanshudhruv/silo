@@ -1,7 +1,7 @@
 import zlib
 import hashlib
 
-from .utils import walk_files, hash_file, ensure_dirs
+from .utils import walk_files, ensure_dirs
 
 
 def scan_tree(project_dir, ignore_patterns=None):
@@ -50,15 +50,6 @@ def snapshot_to_objects(silo_dir, tree, content_map=None):
         store_blob(silo_dir, h, data)
         stored[rel_path] = h
     return stored
-
-
-def load_tree(silo_dir, tree_dict):
-    out = {}
-    for rel_path, h in tree_dict.items():
-        data = load_blob(silo_dir, h)
-        if data is not None:
-            out[rel_path] = data
-    return out
 
 
 def diff_trees(old, new):

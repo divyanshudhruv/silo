@@ -17,7 +17,7 @@ from ..database import (
     list_tags, load_tag, resolve_tag_commits,
     list_notes, load_note, resolve_note_commits,
 )
-from ..models import Commit, Note
+from ..models import Commit
 from ..utils import ensure_dirs, readable_time, load_ignore_patterns, filter_ignored
 from ..theme import ok, err, t
 from ._common import require_silo
