@@ -104,7 +104,7 @@ def git_cmd(git_dir):
     if silo_dir.exists():
         if not click.confirm(t(f"silo already exists in {git_path}. reinitialize? existing data will be lost.", "warn")):
             return
-        for d in ["objects", "commits", "branches", "stash", "tags", "notes", "logs"]:
+        for d in ["objects", "commits", "branches", "tags", "notes", "logs"]:
             p = silo_dir / d
             if p.exists():
                 shutil.rmtree(p)
@@ -180,7 +180,7 @@ def git_cmd(git_dir):
     ok(f"imported {t(str(total), 'hash')} commits from {t(str(git_path), 'file')}")
 
 
-@import_cmd.command(help="Clone a GitHub repo and import its history")
+@import_cmd.command("gh", help="Clone a GitHub repo and import its history")
 @click.argument("repo")
 def gh_cmd(repo):
     tmp = Path(tempfile.mkdtemp(suffix="_silo_import"))

@@ -30,7 +30,6 @@ silo tag ship-it --branch main
 | `branch` | Create, list, rename, delete branches |
 | `switch` | Jump between branches (rewrites working tree) |
 | `reset` | Move HEAD back, delete commits after it |
-| `stash` | Park modified files and restore them later |
 | `tag` | Tag commits — single or whole branch at once |
 | `note` | Annotate commits with freeform text |
 | `snapshot` | Archive entire project as `.tar.gz` |
@@ -54,7 +53,6 @@ Silo stores everything in `.silo/` inside your project:
   branches/        # branch → commit mappings
   tags/            # named references to commits
   notes/           # freeform annotations
-  stash/           # parked working tree copies
   logs/            # audit trail
   .gitignore       # safe to commit .silo/ to git
 ```

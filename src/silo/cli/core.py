@@ -253,7 +253,7 @@ def log(oneline, graph, author, since, grep, n):
                 click.echo(f"Branch: {t(c.branch, 'branch')}")
             click.echo(f"Author: {c.author}")
             for co in c.co_authors:
-                click.echo(f"Co-author: {co}")
+                click.echo(f"Co-authored-by: {co}")
             tags = tag_map.get(c.hash, [])
             if tags:
                 click.echo(f"Tags:   {', '.join(t(tn, 'tag') for tn in tags)}")

@@ -5,12 +5,12 @@ import click
 
 from ..database import (
     resolve_commit, save_note, load_note, list_notes,
-    delete_note, update_note, get_branch, walk_parents,
-    resolve_note_commits, log_action,
+    delete_note, update_note, resolve_note_commits, log_action,
 )
 from ..models import Note
 from ..theme import ok, err, t
 from ._common import require_silo, ColorGroup
+from ._entity import weld_entity, unweld_entity
 
 
 @click.group(cls=ColorGroup, help="Annotate commits with notes")
@@ -46,36 +46,16 @@ def note_weld(note_hash, commit_hash, branch):
         err(f"note '{note_hash[:8]}' not found")
         return
 
+    ok_flag, result = weld_entity(silo_dir, note_obj, commit_hash, branch, save_note)
+    if not ok_flag:
+        return
+
     if branch:
-        branch_hash = get_branch(silo_dir, branch)
-        if not branch_hash:
-            err(f"branch '{branch}' not found")
-            return
-        commits = walk_parents(silo_dir, branch_hash)
-        if not commits:
-            err(f"no commits on branch '{branch}'")
-            return
-        note_obj.commits = list(commits)
-        note_obj.branch = branch
-        note_obj.timestamp = time.time()
-        save_note(silo_dir, note_obj)
-        log_action(silo_dir, "note", f"welded {note_hash[:8]} -> branch '{branch}' ({len(commits)} commits)")
-        ok(f"welded note {t(note_hash[:8], 'hash')} to {t(str(len(commits)), 'hash')} commit(s) on branch '{t(branch, 'branch')}'")
+        log_action(silo_dir, "note", f"welded {note_hash[:8]} -> branch '{branch}' ({len(result)} commits)")
+        ok(f"welded note {t(note_hash[:8], 'hash')} to {t(str(len(result)), 'hash')} commit(s) on branch '{t(branch, 'branch')}'")
     else:
-        if not commit_hash:
-            err("provide a commit hash or --branch")
-            return
-        _, c = resolve_commit(silo_dir, commit_hash)
-        if not c:
-            err(f"commit '{commit_hash}' not found")
-            return
-        note_obj.branch = ""
-        if c.hash not in note_obj.commits:
-            note_obj.commits.append(c.hash)
-        note_obj.timestamp = time.time()
-        save_note(silo_dir, note_obj)
-        log_action(silo_dir, "note", f"welded {note_hash[:8]} -> {c.hash[:8]}")
-        ok(f"welded note {t(note_hash[:8], 'hash')} to {t(c.hash[:8], 'hash')}")
+        log_action(silo_dir, "note", f"welded {note_hash[:8]} -> {result.hash[:8]}")
+        ok(f"welded note {t(note_hash[:8], 'hash')} to {t(result.hash[:8], 'hash')}")
 
 
 @note.command("unweld", help="Detach note from a commit or all commits on a branch")
@@ -92,33 +72,16 @@ def note_unweld(note_hash, commit_hash, branch):
         err(f"note '{note_hash[:8]}' not found")
         return
 
+    ok_flag, result = unweld_entity(silo_dir, note_obj, commit_hash, branch, save_note)
+    if not ok_flag:
+        return
+
     if branch:
-        if note_obj.branch != branch:
-            err(f"note {t(note_hash[:8], 'hash')} is not welded to branch '{branch}'")
-            return
-        note_obj.commits = []
-        note_obj.branch = ""
-        note_obj.timestamp = time.time()
-        save_note(silo_dir, note_obj)
         log_action(silo_dir, "note", f"unwelded {note_hash[:8]} from branch '{branch}'")
         ok(f"unwelded note {t(note_hash[:8], 'hash')} from branch '{t(branch, 'branch')}'")
     else:
-        if not commit_hash:
-            err("provide a commit hash or --branch")
-            return
-        resolved, _ = resolve_commit(silo_dir, commit_hash)
-        target = resolved or commit_hash
-        if note_obj.branch:
-            note_obj.commits = []
-            note_obj.branch = ""
-        if target not in note_obj.commits:
-            err(f"note {t(note_hash[:8], 'hash')} is not attached to {t(target[:8], 'hash')}")
-            return
-        note_obj.commits = [c for c in note_obj.commits if c != target]
-        note_obj.timestamp = time.time()
-        save_note(silo_dir, note_obj)
-        log_action(silo_dir, "note", f"unwelded {note_hash[:8]} from {target[:8]}")
-        ok(f"unwelded note {t(note_hash[:8], 'hash')} from {t(target[:8], 'hash')}")
+        log_action(silo_dir, "note", f"unwelded {note_hash[:8]} from {result[:8]}")
+        ok(f"unwelded note {t(note_hash[:8], 'hash')} from {t(result[:8], 'hash')}")
 
 
 @note.command("add", help="Create note and attach to a commit")
@@ -186,7 +149,7 @@ def note_show(note_hash):
         for c in sorted_c:
             click.echo(f"  {t(c[:8], 'hash')}")
     else:
-        click.echo(f"commits: (unattached)")
+        click.echo("commits: (unattached)")
 
 
 @note.command("delete", help="Delete a note")

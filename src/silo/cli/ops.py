@@ -11,10 +11,10 @@ from ..database import (
     init_db, list_commits, list_commits_meta, list_notes,
     log_action, get_config, save_config, list_tags, list_branches,
     get_branch, load_tag, save_tag, delete_tag, walk_parents, get_head,
-    load_note, delete_note, save_note, resolve_tag_commits, resolve_note_commits,
+    load_note, delete_note, save_note, load_commit,
+    resolve_tag_commits, resolve_note_commits,
 )
-from ..models import Note
-from ..utils import readable_time, load_ignore_patterns
+from ..utils import load_ignore_patterns
 from ..theme import ok, err, t
 from ._common import require_silo
 
@@ -75,17 +75,7 @@ def _clean_orphans(silo_dir, valid_hashes):
             delete_tag(silo_dir, t_name)
             dropped_tags += 1
 
-    stash_dir = silo_dir / "stash"
-    if stash_dir.exists():
-        for d in list(stash_dir.iterdir()):
-            if d.is_dir() and not any(d.iterdir()):
-                d.rmdir()
-
     return freed, dropped_notes, dropped_tags
-
-
-# Need load_commit for _clean_orphans
-from ..database import load_commit
 
 
 @click.command(help="Create a compressed archive of the project")
@@ -132,7 +122,7 @@ def reinit():
         return
 
     if click.confirm(t("silo: this will erase all history. continue?", "warn")):
-        for d in ["objects", "commits", "branches", "stash", "tags", "notes", "logs"]:
+        for d in ["objects", "commits", "branches", "tags", "notes", "logs"]:
             p = silo_dir / d
             if p.exists():
                 shutil.rmtree(p)
@@ -144,7 +134,7 @@ def reinit():
         ok("history reinitialized")
 
 
-@click.command(help="Remove orphaned objects, stale notes/tags, and empty stashes")
+@click.command(help="Remove orphaned objects and stale notes/tags")
 def cleanup():
     silo_dir = require_silo()
     if not silo_dir:
@@ -218,9 +208,6 @@ def info():
                 obj_size += f.stat().st_size
 
     tag_names = list_tags(silo_dir)
-    stash_dir = silo_dir / "stash"
-    stash_count = len([d for d in stash_dir.iterdir() if d.is_dir()]) if stash_dir.exists() else 0
-
     notes = list_notes(silo_dir)
 
     head_hash, cur_branch = get_head(silo_dir)
@@ -231,7 +218,6 @@ def info():
     click.echo(f"Current:    {t(cur_branch or 'detached', 'branch')}")
     click.echo(f"Tags:       {t(str(len(tag_names)), 'tag')}")
     click.echo(f"Notes:      {t(str(len(notes)), 'hash')}")
-    click.echo(f"Stashes:    {t(str(stash_count), 'file')}")
     click.echo(f"Objects:    {t(str(obj_count), 'hash')} ({t(_fmt_size(obj_size), 'dim')})")
 
 

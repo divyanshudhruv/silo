@@ -1,0 +1,138 @@
+import subprocess, sys, tempfile, shutil
+from pathlib import Path
+
+# ── Edit this list: each item is (label, command) ─────────────────────────
+# Use DOUBLE quotes for args with spaces (cmd.exe style), not single quotes.
+
+STEPS = [
+    # ── init ──
+    ("init",                 "silo init ."),
+    ("status (empty)",       "silo status"),
+
+    # ── commit ──
+    ("commit first",         "echo hello > a.txt & silo commit first"),
+    ("commit second",        "echo world > b.txt & silo commit second"),
+    ("commit third",         "echo foo > c.txt & silo commit third"),
+
+    # ── log ──
+    ("log --oneline",        "silo log --oneline"),
+    ("log full",             "silo log"),
+    ("log --graph",          "silo log --graph"),
+    ("log -n 2",             "silo log -n 2"),
+    ("log --grep first",     "silo log --grep first"),
+    ("log --since",          "silo log --since 2020-01-01"),
+
+    # ── show ──
+    ("show HEAD",            "silo show"),
+    ("show <hash>",          "for /f %a in ('silo log --oneline') do silo show %a & exit /b"),
+
+    # ── diff ──
+    ("diff",                 "silo diff"),
+    ("diff --stat",          "silo diff --stat"),
+
+    # ── amend ──
+    ("amend",                "silo amend first-edited"),
+
+    # ── branch ──
+    ("branch create dev",    "silo branch create dev"),
+    ("branch list",          "silo branch list"),
+    ("switch dev",           "silo switch dev"),
+    ("commit on dev",        "echo dev-work > dev.txt & silo commit dev-work"),
+    ("switch main",          "silo switch main"),
+    ("branch rename",        "silo branch rename dev feature"),
+    ("branch delete",        "silo branch delete feature"),
+
+    # ── note ──
+    ("note create",          "silo note create research-needed"),
+    ("note add",             "silo note add quick-thought"),
+    ("note list",            "silo note list"),
+    ("note show",            "for /f %a in ('silo note list') do silo note show %a & exit /b"),
+    ("note edit",            "for /f %a in ('silo note list') do silo note edit %a revised-text & exit /b"),
+    ("note delete",          "for /f %a in ('silo note list') do silo note delete %a & exit /b"),
+
+    # ── tag ──
+    ("tag create v1",        "silo tag create v1"),
+    ("tag create rc",        "silo tag create rc"),
+    ("tag weld v1",          "silo tag weld v1 HEAD"),
+    ("tag weld --branch",    "silo tag weld rc --branch main"),
+    ("tag list",             "silo tag list"),
+    ("tag show v1",          "silo tag show v1"),
+    ("tag unweld v1",        "silo tag unweld v1 HEAD"),
+    ("tag unweld --branch",  "silo tag unweld rc --branch main"),
+    ("tag add",              "silo tag add hotfix HEAD"),
+    ("tag rename",           "silo tag rename rc v2"),
+    ("tag delete",           "silo tag delete hotfix"),
+
+    # ── snapshot ──
+    ("snapshot",             "silo snapshot"),
+
+    # ── config ──
+    ("config set",           "silo config set usegitignore true"),
+    ("config list",          "silo config list"),
+    ("config set theme",     "silo config set theme dark"),
+    ("config list merged",   "silo config list"),
+
+    # ── info / verify / cleanup / gc ──
+    ("info",                 "silo info"),
+    ("verify",               "silo verify"),
+    ("cleanup",              "silo cleanup"),
+    ("gc --force",           "silo gc --force"),
+
+    # ── freeze / unfreeze ──
+    ("freeze",               "silo freeze"),
+    ("unfreeze",             "silo unfreeze"),
+
+    # ── bridge ──
+    ("bridge status",        "silo bridge status"),
+
+    # ── reinit ──
+    ("reinit",               "echo yes | silo reinit"),
+]
+
+# ── Nothing to edit below this line ──────────────────────────────────────────
+
+if __name__ == "__main__":
+    sandbox = Path(tempfile.mkdtemp(suffix="_silo_demo"))
+    ok = 0
+    fail = 0
+    shell = sys.platform == "win32"
+
+    print(f"\n  sandbox: {sandbox}\n")
+
+    for label, cmd in STEPS:
+        print(f"  {'-' * 60}")
+        print(f"  [{label}]")
+        print(f"  $ {cmd}")
+        print(f"  {'-' * 60}")
+
+        result = subprocess.run(
+            cmd,
+            shell=shell,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=str(sandbox),
+        )
+        out = (result.stdout + result.stderr).strip()
+        if out:
+            for line in out.splitlines():
+                print(f"    {line}")
+        else:
+            print(f"    (no output)")
+
+        if result.returncode == 0:
+            ok += 1
+            print(f"  OK  (exit 0)\n")
+        else:
+            fail += 1
+            nfo = result.stdout.strip().splitlines()[-1:] if result.stdout.strip() else []
+            nfo += result.stderr.strip().splitlines()[-1:] if result.stderr.strip() else []
+            if nfo:
+                print(f"    {nfo[0]}")
+            print(f"  FAIL (exit {result.returncode})\n")
+
+    print(f"  {'=' * 50}")
+    print(f"  Done: {ok} OK, {fail} FAIL ({ok+fail} total)\n")
+
+    shutil.rmtree(sandbox, ignore_errors=True)
+    sys.exit(1 if fail else 0)

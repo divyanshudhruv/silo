@@ -124,6 +124,14 @@ def switch(name):
     project_dir = silo_dir.parent
     ignore = load_ignore_patterns(silo_dir)
     current_tree = scan_tree(project_dir, ignore)
+    head_hash, _ = get_head(silo_dir)
+    if head_hash:
+        head_commit = load_commit(silo_dir, head_hash)
+        if head_commit:
+            dirty_a, dirty_m, dirty_r = diff_trees(head_commit.tree, current_tree)
+            if dirty_a or dirty_m or dirty_r:
+                if not click.confirm(t("working tree has uncommitted changes. switch anyway?", "warn")):
+                    return
 
     added, modified, removed = diff_trees(current_tree, commit.tree)
 

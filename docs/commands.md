@@ -181,28 +181,6 @@ silo amend "new message" abc1234
 
 ---
 
-## stash
-
-```
-silo stash                          # list stashes
-silo stash save <name> [--noignore] # stash modified files under a name
-silo stash list                     # list all stashes
-silo stash drop [<name>]            # delete a stash
-```
-
-Stash modified files (compared to the last commit) under a name. `--noignore` bypasses `.siloignore`. `drop` with no name shows an interactive picker.
-
-```
-silo stash
-silo stash save my-work
-silo stash save all --noignore
-silo stash list
-silo stash drop my-work
-silo stash drop              # interactive picker
-```
-
----
-
 ## tag
 
 Manage tags. Subcommand-only (no `-d`/`-m` flags).
@@ -296,7 +274,7 @@ silo config list
 silo config list -g
 ```
 
---- 
+---
 
 ## freeze / unfreeze
 
@@ -330,7 +308,7 @@ silo snapshot --noignore
 silo reinit
 ```
 
-Erase all silo history and reinitialize. Removes all objects, commits, branches, stashes, tags, notes, and logs. Reinitializes `.silo/` as empty. Prompts for confirmation.
+Erase all silo history and reinitialize. Removes all objects, commits, branches, tags, notes, and logs. Reinitializes `.silo/` as empty. Prompts for confirmation.
 
 ---
 
@@ -340,7 +318,7 @@ Erase all silo history and reinitialize. Removes all objects, commits, branches,
 silo cleanup
 ```
 
-Remove orphaned objects (blobs not referenced by any commit), stale tags/notes (pointing to non-existent commits), and empty stash directories.
+Remove orphaned objects (blobs not referenced by any commit) and stale tags/notes (pointing to non-existent commits).
 
 ---
 
@@ -375,7 +353,7 @@ Check repository integrity. For every commit, verify that all blobs referenced i
 silo info
 ```
 
-Show repository statistics: commits, branches, current branch, tags, notes, stashes, object count, and total object storage size.
+Show repository statistics: commits, branches, current branch, tags, notes, object count, and total object storage size.
 
 ---
 

@@ -1,6 +1,7 @@
 import sqlite3
 import time
 import hashlib
+from functools import lru_cache
 from pathlib import Path
 
 import click
@@ -14,7 +15,6 @@ def init_db(silo_dir):
     ensure_dirs(silo_dir / "objects")
     ensure_dirs(silo_dir / "commits")
     ensure_dirs(silo_dir / "branches")
-    ensure_dirs(silo_dir / "stash")
     ensure_dirs(silo_dir / "tags")
     ensure_dirs(silo_dir / "notes")
     ensure_dirs(silo_dir / "logs")
@@ -91,7 +91,7 @@ def save_commit(silo_dir, commit, conn=None):
         )
         conn.commit()
     except sqlite3.OperationalError:
-        pass
+        warn("commit saved to disk but index update failed")
     finally:
         if close:
             conn.close()
@@ -159,19 +159,12 @@ def find_commit(silo_dir, h):
     return None
 
 
-from functools import lru_cache
-
-
 @lru_cache(maxsize=256)
-def _load_commit_raw(silo_dir, h):
+def load_commit(silo_dir, h):
     p = silo_dir / "commits" / f"{h}.json"
     if not p.exists():
         return None
     return Commit.from_json(p.read_text())
-
-
-def load_commit(silo_dir, h):
-    return _load_commit_raw(silo_dir, h)
 
 
 def list_commits(silo_dir, _from_sqlite=True):
@@ -193,7 +186,7 @@ def list_commits(silo_dir, _from_sqlite=True):
                         commits.append(c)
                 return commits
         except Exception:
-            pass
+            warn("falling back to filesystem for commit listing")
     commits_dir = silo_dir / "commits"
     if not commits_dir.exists():
         return []
@@ -367,10 +360,6 @@ def rename_tag(silo_dir, old_name, new_name):
 
 
 # --- Notes ---
-
-def _note_hash(text):
-    return hashlib.sha256(f"{text}{time.time_ns()}".encode()).hexdigest()
-
 
 def _migrate_note(silo_dir, f):
     h = f.stem

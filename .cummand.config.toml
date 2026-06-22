@@ -1,0 +1,6 @@
+[defaults]
+server-url = "wss://cummand.onrender.com"
+public-url = "https://cummand.onrender.com/{code}"
+auto-open = true
+log-level = "info"
+retry-limit = 2

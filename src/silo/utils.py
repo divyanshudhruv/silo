@@ -19,15 +19,15 @@ def _try_read(path):
 
 def load_ignore_patterns(silo_dir):
     config_path = silo_dir / "config.json"
-    use_gitignore = False
+    usegitignore = False
     if config_path.exists():
         try:
             cfg = json.loads(config_path.read_text())
-            use_gitignore = cfg.get("usegitignore", "false") == "true"
+            usegitignore = cfg.get("usegitignore", "false") == "true"
         except (json.JSONDecodeError, OSError):
             pass
 
-    ignore_file = ".gitignore" if use_gitignore else ".siloignore"
+    ignore_file = ".gitignore" if usegitignore else ".siloignore"
     p = silo_dir.parent / ignore_file
     patterns = []
     if p.exists():

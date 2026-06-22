@@ -4,12 +4,13 @@ import click
 
 from ..database import (
     load_tag, save_tag, list_tags, delete_tag, rename_tag,
-    resolve_commit, get_branch, walk_parents, resolve_tag_commits,
+    resolve_commit, resolve_tag_commits,
     log_action,
 )
 from ..models import Tag
 from ..theme import ok, err, t
 from ._common import require_silo, ColorGroup
+from ._entity import weld_entity, unweld_entity
 
 
 @click.group(cls=ColorGroup, help="Manage tags")
@@ -48,36 +49,16 @@ def tag_weld(name, commit_hash, branch):
         err(f"tag '{name}' not found")
         return
 
+    ok_flag, result = weld_entity(silo_dir, tag_obj, commit_hash, branch, save_tag)
+    if not ok_flag:
+        return
+
     if branch:
-        branch_hash = get_branch(silo_dir, branch)
-        if not branch_hash:
-            err(f"branch '{branch}' not found")
-            return
-        commits = walk_parents(silo_dir, branch_hash)
-        if not commits:
-            err(f"no commits on branch '{branch}'")
-            return
-        tag_obj.commits = list(commits)
-        tag_obj.branch = branch
-        tag_obj.timestamp = time.time()
-        save_tag(silo_dir, tag_obj)
-        log_action(silo_dir, "tag", f"welded '{name}' -> branch '{branch}' ({len(commits)} commits)")
-        ok(f"welded tag '{t(name, 'tag')}' to {t(str(len(commits)), 'hash')} commit(s) on branch '{t(branch, 'branch')}'")
+        log_action(silo_dir, "tag", f"welded '{name}' -> branch '{branch}' ({len(result)} commits)")
+        ok(f"welded tag '{t(name, 'tag')}' to {t(str(len(result)), 'hash')} commit(s) on branch '{t(branch, 'branch')}'")
     else:
-        if not commit_hash:
-            err("provide a commit hash or --branch")
-            return
-        _, c = resolve_commit(silo_dir, commit_hash)
-        if not c:
-            err(f"commit '{commit_hash}' not found")
-            return
-        tag_obj.branch = ""
-        if c.hash not in tag_obj.commits:
-            tag_obj.commits.append(c.hash)
-        tag_obj.timestamp = time.time()
-        save_tag(silo_dir, tag_obj)
-        log_action(silo_dir, "tag", f"welded '{name}' -> {c.hash[:8]}")
-        ok(f"welded tag '{t(name, 'tag')}' to {t(c.hash[:8], 'hash')}")
+        log_action(silo_dir, "tag", f"welded '{name}' -> {result.hash[:8]}")
+        ok(f"welded tag '{t(name, 'tag')}' to {t(result.hash[:8], 'hash')}")
 
 
 @tag.command("unweld", help="Detach tag from a commit or all commits on a branch")
@@ -94,33 +75,16 @@ def tag_unweld(name, commit_hash, branch):
         err(f"tag '{name}' not found")
         return
 
+    ok_flag, result = unweld_entity(silo_dir, tag_obj, commit_hash, branch, save_tag)
+    if not ok_flag:
+        return
+
     if branch:
-        if tag_obj.branch != branch:
-            err(f"tag '{name}' is not welded to branch '{branch}'")
-            return
-        tag_obj.commits = []
-        tag_obj.branch = ""
-        tag_obj.timestamp = time.time()
-        save_tag(silo_dir, tag_obj)
         log_action(silo_dir, "tag", f"unwelded '{name}' from branch '{branch}'")
         ok(f"unwelded tag '{t(name, 'tag')}' from branch '{t(branch, 'branch')}'")
     else:
-        if not commit_hash:
-            err("provide a commit hash or --branch")
-            return
-        resolved, _ = resolve_commit(silo_dir, commit_hash)
-        target = resolved or commit_hash
-        if tag_obj.branch:
-            tag_obj.commits = []
-            tag_obj.branch = ""
-        if target not in tag_obj.commits:
-            err(f"tag '{name}' is not attached to {t(target[:8], 'hash')}")
-            return
-        tag_obj.commits = [c for c in tag_obj.commits if c != target]
-        tag_obj.timestamp = time.time()
-        save_tag(silo_dir, tag_obj)
-        log_action(silo_dir, "tag", f"unwelded '{name}' from {target[:8]}")
-        ok(f"unwelded tag '{t(name, 'tag')}' from {t(target[:8], 'hash')}")
+        log_action(silo_dir, "tag", f"unwelded '{name}' from {result[:8]}")
+        ok(f"unwelded tag '{t(name, 'tag')}' from {t(result[:8], 'hash')}")
 
 
 @tag.command("add", help="Create tag and attach to a commit")
@@ -196,7 +160,7 @@ def tag_show(name):
         for c in sorted_c:
             click.echo(f"  {t(c[:8], 'hash')}")
     else:
-        click.echo(f"commits: (unattached)")
+        click.echo("commits: (unattached)")
 
 
 @tag.command("delete", help="Delete a tag")

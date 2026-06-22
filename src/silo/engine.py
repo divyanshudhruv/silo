@@ -5,10 +5,7 @@ from .utils import walk_files, hash_file, ensure_dirs
 
 
 def scan_tree(project_dir, ignore_patterns=None):
-    tree = {}
-    for f in walk_files(project_dir, ignore_patterns):
-        rel = str(f.relative_to(project_dir).as_posix())
-        tree[rel] = hash_file(f)
+    tree, _ = scan_tree_with_content(project_dir, ignore_patterns)
     return tree
 
 

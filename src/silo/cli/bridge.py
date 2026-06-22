@@ -3,8 +3,8 @@ import sys
 
 import click
 
-from ..theme import ok, err, t
-from ._common import require_silo
+from ..theme import ok, err, warn, t
+from ._common import require_silo, ColorGroup
 
 
 def _hook_content():
@@ -25,7 +25,7 @@ def _git_dir(silo_dir):
     return None
 
 
-@click.group(help="Bridge between git and silo (auto-commit on git hooks)")
+@click.group(cls=ColorGroup, help="Bridge between git and silo (auto-commit on git hooks)")
 def bridge():
     pass
 
@@ -49,7 +49,7 @@ def bridge_enable():
     try:
         hook_path.chmod(0o755)
     except Exception:
-        pass
+        warn("could not set executable permission on hook")
 
     ok(f"bridge enabled: {t('post-commit', 'file')} hook installed")
     click.echo("  every git commit will auto-create a silo commit")
