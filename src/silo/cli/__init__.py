@@ -12,7 +12,7 @@ from .import_ import import_cmd
 from .bridge import bridge
 
 
-def _print_version(ctx, param, value):
+def _print_version(ctx: click.Context, param: click.Option, value: bool) -> None:
     if not value or ctx.resilient_parsing:
         return
     click.echo(__version__)
@@ -22,7 +22,7 @@ def _print_version(ctx, param, value):
 @click.group(cls=ColorGroup)
 @click.option("--version", is_flag=True, callback=_print_version,
               expose_value=False, is_eager=True, help="Show the version and exit.")
-def cli():
+def cli() -> None:
     pass
 
 
@@ -32,5 +32,5 @@ for _cmd in [init, commit, status, log, diff, show, branch, switch, reset, amend
     cli.add_command(_cmd)
 
 
-def main():
+def main() -> None:
     cli()

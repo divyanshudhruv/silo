@@ -3,22 +3,24 @@ import click
 from ..database import get_config, save_config, log_action
 from ..theme import ok, err, t
 from ._common import require_silo, ColorGroup
+from ..models import Config
+from pathlib import Path
 
 
 @click.group(cls=ColorGroup, help="View and edit configuration")
-def config():
+def config() -> None:
     pass
 
 
 @config.command("set", help="Set a config value")
 @click.argument("key")
 @click.argument("value")
-def config_set(key, value):
-    silo_dir = require_silo()
+def config_set(key: str, value: str) -> None:
+    silo_dir: Path | None = require_silo()
     if not silo_dir:
         return
 
-    cfg = get_config(silo_dir, include_global=False)
+    cfg: Config = get_config(silo_dir)
     cfg.set(key, value)
     save_config(silo_dir, cfg)
     log_action(silo_dir, "config", f"{key}={value}")
@@ -26,11 +28,11 @@ def config_set(key, value):
 
 
 @config.command("list", help="List all config values")
-def config_list():
-    silo_dir = require_silo()
+def config_list() -> None:
+    silo_dir: Path | None = require_silo()
     if not silo_dir:
         return
 
-    cfg = get_config(silo_dir)
+    cfg: Config = get_config(silo_dir)
     for k, v in cfg.data.items():
         click.echo(f"{k}={v}")

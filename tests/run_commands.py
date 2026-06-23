@@ -1,10 +1,13 @@
-import subprocess, sys, tempfile, shutil
+import subprocess
+import sys
+import tempfile
+import shutil
 from pathlib import Path
 
-# ── Edit this list: each item is (label, command) ─────────────────────────
+# ── Edit this list to add your own commands: each item is (label, command) ────
 # Use DOUBLE quotes for args with spaces (cmd.exe style), not single quotes.
 
-STEPS = [
+STEPS: list[tuple[str, str]] = [
     # ── init ──
     ("init",                 "silo init ."),
     ("status (empty)",       "silo status"),
@@ -47,8 +50,10 @@ STEPS = [
     ("note add",             "silo note add quick-thought"),
     ("note list",            "silo note list"),
     ("note show",            "for /f %a in ('silo note list') do silo note show %a & exit /b"),
-    ("note edit",            "for /f %a in ('silo note list') do silo note edit %a revised-text & exit /b"),
-    ("note delete",          "for /f %a in ('silo note list') do silo note delete %a & exit /b"),
+    ("note edit",
+     "for /f %a in ('silo note list') do silo note edit %a revised-text & exit /b"),
+    ("note delete",
+     "for /f %a in ('silo note list') do silo note delete %a & exit /b"),
 
     # ── tag ──
     ("tag create v1",        "silo tag create v1"),
@@ -92,10 +97,11 @@ STEPS = [
 # ── Nothing to edit below this line ──────────────────────────────────────────
 
 if __name__ == "__main__":
-    sandbox = Path(tempfile.mkdtemp(suffix="_silo_demo"))
-    ok = 0
-    fail = 0
-    shell = sys.platform == "win32"
+    sandbox: Path = Path(tempfile.mkdtemp(
+        suffix="_silo_demo"))  # type: ignore[arg-type]
+    ok: int = 0
+    fail: int = 0
+    shell: bool = sys.platform == "win32"
 
     print(f"\n  sandbox: {sandbox}\n")
 
@@ -105,7 +111,7 @@ if __name__ == "__main__":
         print(f"  $ {cmd}")
         print(f"  {'-' * 60}")
 
-        result = subprocess.run(
+        result: subprocess.CompletedProcess[str] = subprocess.run(
             cmd,
             shell=shell,
             capture_output=True,
@@ -113,7 +119,7 @@ if __name__ == "__main__":
             timeout=30,
             cwd=str(sandbox),
         )
-        out = (result.stdout + result.stderr).strip()
+        out: str = (result.stdout + result.stderr).strip()
         if out:
             for line in out.splitlines():
                 print(f"    {line}")
@@ -125,8 +131,10 @@ if __name__ == "__main__":
             print(f"  OK  (exit 0)\n")
         else:
             fail += 1
-            nfo = result.stdout.strip().splitlines()[-1:] if result.stdout.strip() else []
-            nfo += result.stderr.strip().splitlines()[-1:] if result.stderr.strip() else []
+            nfo: list[str] = result.stdout.strip().splitlines(
+            )[-1:] if result.stdout.strip() else []
+            nfo += result.stderr.strip().splitlines(
+            )[-1:] if result.stderr.strip() else []
             if nfo:
                 print(f"    {nfo[0]}")
             print(f"  FAIL (exit {result.returncode})\n")

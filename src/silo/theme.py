@@ -2,7 +2,7 @@ import os
 
 import click
 
-STYLES = {
+STYLES: dict[str, dict[str, str]] = {
     "prefix": {"fg": "cyan"},
     "error": {"fg": "red"},
     "warn": {"fg": "yellow"},
@@ -21,22 +21,22 @@ STYLES = {
     "auto": {"fg": "black", "bg": "yellow"},
 }
 
-_NO_COLOR = os.environ.get("NO_COLOR") == "1"
+_NO_COLOR: bool = os.environ.get("NO_COLOR") == "1"
 
 
-def t(text, key):
+def t(text: str, key: str) -> str:
     if _NO_COLOR:
         return text
-    return click.style(text, **STYLES.get(key, {}))
+    return click.style(text, **STYLES.get(key, {})) # type: ignore[arg-type]
 
 
-def ok(msg):
-    click.echo(t("silo:", "prefix") + " " + msg)
+def ok(msg: str) -> None:
+    click.echo(t("silo:", "prefix") + " " + msg) # type: ignore[arg-type]
 
 
-def err(msg):
-    click.echo(t("silo:", "error") + " " + msg, err=True)
+def err(msg: str) -> None:
+    click.echo(t("silo:", "error") + " " + msg, err=True) # type: ignore[arg-type]
 
 
-def warn(msg):
-    click.echo(t("silo:", "warn") + " " + msg, err=True)
+def warn(msg: str) -> None:
+    click.echo(t("silo:", "warn") + " " + msg, err=True) # type: ignore[arg-type]

@@ -1,5 +1,6 @@
 import shutil
 import sys
+from pathlib import Path
 
 import click
 
@@ -8,7 +9,7 @@ from ._common import require_silo, ColorGroup
 
 
 def _hook_content():
-    exe = shutil.which("silo")
+    exe: str | None = shutil.which("silo")
     if not exe:
         exe = f'"{sys.executable}" -m silo'
     else:
@@ -18,32 +19,32 @@ def _hook_content():
 """
 
 
-def _git_dir(silo_dir):
-    d = silo_dir.parent / ".git"
+def _git_dir(silo_dir: Path) -> Path | None:
+    d: Path = silo_dir.parent / ".git"
     if d.is_dir():
         return d
     return None
 
 
 @click.group(cls=ColorGroup, help="Bridge between git and silo (auto-commit on git hooks)")
-def bridge():
+def bridge() -> None:
     pass
 
 
 @bridge.command("enable", help="Install git post-commit hook for auto silo commits")
-def bridge_enable():
-    silo_dir = require_silo()
+def bridge_enable() -> None:
+    silo_dir: Path | None = require_silo()
     if not silo_dir:
         return
 
-    gd = _git_dir(silo_dir)
+    gd: Path | None = _git_dir(silo_dir)
     if not gd:
         err("no .git directory found (not a git repository?)")
         return
 
-    hooks_dir = gd / "hooks"
+    hooks_dir: Path = gd / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
-    hook_path = hooks_dir / "post-commit"
+    hook_path: Path = hooks_dir / "post-commit"
 
     hook_path.write_text(_hook_content())
     try:
@@ -56,17 +57,17 @@ def bridge_enable():
 
 
 @bridge.command("disable", help="Remove git post-commit hook")
-def bridge_disable():
-    silo_dir = require_silo()
+def bridge_disable() -> None:
+    silo_dir: Path | None = require_silo()
     if not silo_dir:
         return
 
-    gd = _git_dir(silo_dir)
+    gd: Path | None = _git_dir(silo_dir)
     if not gd:
         err("no .git directory found")
         return
 
-    hook_path = gd / "hooks" / "post-commit"
+    hook_path: Path = gd / "hooks" / "post-commit"
     if not hook_path.exists():
         err("no bridge hook found")
         return
@@ -76,18 +77,18 @@ def bridge_disable():
 
 
 @bridge.command("status", help="Check if bridge hook is installed")
-def bridge_status():
-    silo_dir = require_silo()
+def bridge_status() -> None:
+    silo_dir: Path | None = require_silo()
     if not silo_dir:
         return
 
-    gd = _git_dir(silo_dir)
+    gd: Path | None = _git_dir(silo_dir)
     if not gd:
         click.echo(f"git:    {t('no .git directory', 'error')}")
         click.echo(f"bridge: {t('disabled', 'dim')}")
         return
 
-    hook_path = gd / "hooks" / "post-commit"
+    hook_path: Path = gd / "hooks" / "post-commit"
     if hook_path.exists():
         click.echo(f"git:    {t(gd, 'file')}")
         click.echo(f"bridge: {t('enabled', 'ok')}")
