@@ -180,7 +180,7 @@ sequenceDiagram
 ## Tips
 
 - **`.siloignore`** - add patterns to exclude files (same syntax as `.gitignore`)
-- **`usegitignore`** - `silo config set usegitignore true` uses `.gitignore` instead
+- **`use_gitignore`** - `silo config set use_gitignore true` uses `.gitignore` instead
 - **Bridge mode** - `silo bridge enable` installs a git `post-commit` hook; every `git commit` auto-creates a silo commit
 - **Tags on branches** - `silo tag v1.0 --branch main` attaches to every commit on `main` at once
 - **NO_COLOR** - set `NO_COLOR=1` to disable colored output

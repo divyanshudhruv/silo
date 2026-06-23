@@ -2,7 +2,6 @@
 __pycache__/
 *.pyc
 *.db
-.silo/
 .env
 *.egg-info/
 dist/
@@ -14,3 +13,6 @@ INSTRUCTION.md
 BUILD_PLAN.md
 *.plan.md
 TODO.md
+
+# Silo
+.silo/

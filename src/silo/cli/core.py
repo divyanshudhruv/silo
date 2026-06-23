@@ -66,12 +66,52 @@ def init(directory):
         "!/HEAD\n"
     )
 
+    created_siloignore = False
+    siloignore_path = d / ".siloignore"
+    if not siloignore_path.exists():
+        siloignore_path.write_text("")
+        created_siloignore = True
+
+    gitignore_path = d / ".gitignore"
+    if gitignore_path.exists():
+        content = gitignore_path.read_text()
+        if ".silo" not in content:
+            with gitignore_path.open("a") as f:
+                f.write("\n# Silo\n.silo/\n")
+
+    first_hash = None
+    cfg = get_config(silo_dir)
+    ignore = load_ignore_patterns(silo_dir)
+    current_tree, contents = scan_tree_with_content(d, ignore)
+    if current_tree:
+        snapshot_to_objects(silo_dir, current_tree, contents)
+        commit_data = {
+            "tree": current_tree,
+            "parent": None,
+            "author": f"{cfg.get('name')} <{cfg.get('email')}>",
+            "message": "silo: initial commit",
+            "co_authors": [],
+            "timestamp": time.time(),
+            "branch": "main",
+        }
+        raw = json.dumps(commit_data, sort_keys=True).encode()
+        first_hash = hashlib.sha256(raw).hexdigest()
+        commit_obj = Commit(hash=first_hash, **commit_data)
+        save_commit(silo_dir, commit_obj)
+        set_head(silo_dir, first_hash, "main")
+        conn = get_db(silo_dir)
+        update_index(conn, current_tree)
+        conn.close()
+        log_action(silo_dir, "commit", f"[{first_hash[:8]}] silo: initial commit ({len(current_tree)} files)")
+
     log_action(silo_dir, "init", f"dir={d}")
-    ok(f"initialized empty repository in {silo_dir}")
+    ok(f"initialized repository in {silo_dir}")
     click.echo(f"  {t('config.json', 'file')} and {t('HEAD', 'file')} are safe to commit to git")
-    click.echo(f"  create {t('.siloignore', 'file')} in project root to exclude patterns")
-    click.echo(f"  or set {t('usegitignore', 'file')}=true with {t('silo config set usegitignore true', 'highlight')} to use .gitignore instead")
-    click.echo(f"  run {t('silo commit', 'highlight')} to create the first snapshot")
+    if created_siloignore:
+        click.echo(f"  created {t('.siloignore', 'file')} — add patterns to exclude files")
+    if first_hash:
+        click.echo(f"  created first commit {t(first_hash[:8], 'hash')} with {t(str(len(current_tree)), 'hash')} files")
+    click.echo(f"  run {t('silo commit', 'highlight')} to create more snapshots")
 
 
 @click.command(help="Snapshot all files with a commit message")

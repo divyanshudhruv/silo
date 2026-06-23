@@ -67,10 +67,10 @@ STEPS = [
     ("snapshot",             "silo snapshot"),
 
     # ── config ──
-    ("config set",           "silo config set usegitignore true"),
+    ("config set",           "silo config set use_gitignore true"),
     ("config list",          "silo config list"),
     ("config set theme",     "silo config set theme dark"),
-    ("config list merged",   "silo config list"),
+    ("config list",          "silo config list"),
 
     # ── info / verify / cleanup / gc ──
     ("info",                 "silo info"),

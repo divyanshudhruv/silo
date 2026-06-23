@@ -3,13 +3,15 @@ from typing import Optional
 import json
 
 
-CONFIG_SCHEMA = {
-    "name": str,
-    "email": str,
-    "frozen": str,
-    "theme": str,
-    "usegitignore": str,
+CONFIG_DEFAULTS = {
+    "name": "silo-user",
+    "email": "user@silo.local",
+    "frozen": "false",
+    "theme": "default",
+    "use_gitignore": "false",
 }
+
+CONFIG_SCHEMA = {k: str for k in CONFIG_DEFAULTS}
 
 
 @dataclass
@@ -67,10 +69,10 @@ class Note:
 
 @dataclass
 class Config:
-    data: dict = field(default_factory=lambda: {
-        "name": "silo-user",
-        "email": "user@silo.local",
-    })
+    data: dict = field(default_factory=lambda: dict(CONFIG_DEFAULTS))
+
+    def __post_init__(self):
+        self.data = {**CONFIG_DEFAULTS, **self.data}
 
     def get(self, key, default=None):
         return self.data.get(key, default)

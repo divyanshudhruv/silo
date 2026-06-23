@@ -8,6 +8,10 @@ silo init [directory]
 
 Create a new silo repository. If `directory` is omited, uses the current directory. Creates `.silo/` with `config.json`, `HEAD`, `index.db`, and storage directories.
 
+On first init, Silo automatically creates an empty `.siloignore` file in the project root (if none exists) and appends `.silo/` to the project's `.gitignore` (if present). It then scans all project files and creates an initial commit with message `"silo: initial commit"`.
+
+The generated `.silo/config.json` includes all config keys with default values — edit them with `silo config set`.
+
 ---
 
 ## commit
@@ -18,7 +22,7 @@ silo commit "<message>" [--co <name>] [--noignore]
 
 Snapshot all tracked files with a message. The `--co` flag (repeatable) adds co-authors. `--noignore` bypasses ignore files and snapshots all files.
 
-Uses a single-pass scan: files are hashed and read in one pass. Excluded directories (`.silo/`, `.git/`, `__pycache__/`, and patterns from the active ignore file) are skipped before descending. By default `.siloignore` is used; set `usegitignore=true` in config to use `.gitignore` instead.
+Uses a single-pass scan: files are hashed and read in one pass. Excluded directories (`.silo/`, `.git/`, `__pycache__/`, and patterns from the active ignore file) are skipped before descending. By default `.siloignore` is used; set `use_gitignore=true` in config to use `.gitignore` instead.
 
 ```
 silo commit                         # prompts for message interactively
@@ -255,23 +259,28 @@ silo note edit <hash> "updated text"
 ## config
 
 ```
-silo config set <key> <value>               # set local config
-silo config set -g <key> <value>            # set global config
-silo config list                            # list merged config (local overrides global)
-silo config list -g                         # list global config only
+silo config set <key> <value>
+silo config list
 ```
 
-Valid keys: `name`, `email`, `frozen`, `theme`, `usegitignore`.
+Valid keys: `name`, `email`, `frozen`, `theme`, `use_gitignore`.
 
-When `usegitignore` is set to `true`, Silo reads ignore patterns from `.gitignore` instead of `.siloignore`. Set with `silo config set usegitignore true`. Default: `false` (uses `.siloignore`).
+| Key | Default | Description |
+| --- | ------- | ----------- |
+| `name` | `silo-user` | Author name for commits |
+| `email` | `user@silo.local` | Author email for commits |
+| `frozen` | `false` | Block new commits when `true` |
+| `theme` | `default` | Output color theme |
+| `use_gitignore` | `false` | Use `.gitignore` instead of `.siloignore` |
+
+When `use_gitignore` is `true`, Silo reads ignore patterns from `.gitignore` instead of `.siloignore`. Default: `false`.
 
 Note: `.silo/`, `.git/`, and `__pycache__/` are always excluded regardless of ignore files.
 
 ```
 silo config set name "Alice"
-silo config set -g email "alice@home.com"
+silo config set use_gitignore true
 silo config list
-silo config list -g
 ```
 
 ---
@@ -293,7 +302,7 @@ Sets `frozen=true` in local config. Commits and imports are rejected while froze
 silo snapshot [--noignore]
 ```
 
-Create a `.tar.gz` archive of the project in the parent directory. Respects `.siloignore` by default. `--noignore` archives all files including ignored ones. Always excludes `.silo/` and `.git/`.
+Create a `.zip` archive of the project in the parent directory. Respects `.siloignore` by default. `--noignore` archives all files including ignored ones. Always excludes `.silo/` and `.git/`.
 
 ```
 silo snapshot

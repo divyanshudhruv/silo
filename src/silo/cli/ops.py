@@ -1,20 +1,22 @@
+import json
 import time
-import fnmatch
+import hashlib
 import shutil
-import tarfile
+import zipfile
 from pathlib import Path
 
 import click
 
-from ..engine import load_blob
+from ..engine import load_blob, scan_tree_with_content, snapshot_to_objects
 from ..database import (
     init_db, list_commits, list_commits_meta, list_notes,
     log_action, get_config, save_config, list_tags, list_branches,
     get_branch, load_tag, save_tag, delete_tag, walk_parents, get_head,
-    load_note, load_commit,
+    load_note, load_commit, get_db, update_index, save_commit, set_head,
     resolve_tag_commits, resolve_note_commits,
 )
-from ..utils import load_ignore_patterns
+from ..models import Commit
+from ..utils import load_ignore_patterns, walk_files
 from ..theme import ok, err, t
 from ._common import require_silo
 
@@ -90,29 +92,13 @@ def snapshot(noignore):
     ts = time.strftime("%Y%m%d_%H%M%S")
     archive_name = project_dir.name + f"_snapshot_{ts}"
     dest = project_dir.parent / archive_name
-    prefix = project_dir.name + "/"
 
-    def filter_tar(ti):
-        name = ti.name.replace("\\", "/")
-        if not name.startswith(prefix):
-            return ti
-        rel = name[len(prefix):]
-        if rel.startswith(".silo/") or rel == ".silo" or rel.startswith(".git/") or rel == ".git":
-            return None
-        for pat in ignore:
-            if pat.endswith("/"):
-                base = pat.rstrip("/")
-                if rel == base or rel.startswith(base + "/"):
-                    return None
-            elif fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(Path(ti.name).name, pat):
-                return None
-        return ti
-
-    with tarfile.open(f"{dest}.tar.gz", "w:gz") as tar:
-        tar.add(project_dir, arcname=project_dir.name, filter=filter_tar)
+    with zipfile.ZipFile(f"{dest}.zip", "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in walk_files(project_dir, ignore):
+            zf.write(f, str(f.relative_to(project_dir).as_posix()))
 
     log_action(silo_dir, "snapshot", str(dest))
-    ok(f"snapshot saved to {t(f'{dest}.tar.gz', 'file')}")
+    ok(f"snapshot saved to {t(f'{dest}.zip', 'file')}")
 
 
 @click.command("reinit", help="Erase all silo history and reinitialize")
@@ -130,6 +116,32 @@ def reinit():
         if db.exists():
             db.unlink()
         init_db(silo_dir)
+
+        project_dir = silo_dir.parent
+        cfg = get_config(silo_dir)
+        ignore = load_ignore_patterns(silo_dir)
+        current_tree, contents = scan_tree_with_content(project_dir, ignore)
+        if current_tree:
+            snapshot_to_objects(silo_dir, current_tree, contents)
+            commit_data = {
+                "tree": current_tree,
+                "parent": None,
+                "author": f"{cfg.get('name')} <{cfg.get('email')}>",
+                "message": "silo: initial commit",
+                "co_authors": [],
+                "timestamp": time.time(),
+                "branch": "main",
+            }
+            raw = json.dumps(commit_data, sort_keys=True).encode()
+            h = hashlib.sha256(raw).hexdigest()
+            commit_obj = Commit(hash=h, **commit_data)
+            save_commit(silo_dir, commit_obj)
+            set_head(silo_dir, h, "main")
+            conn = get_db(silo_dir)
+            update_index(conn, current_tree)
+            conn.close()
+            log_action(silo_dir, "commit", f"[{h[:8]}] silo: initial commit ({len(current_tree)} files)")
+
         log_action(silo_dir, "reinit", "all history reinitialized")
         ok("history reinitialized")
 

@@ -39,10 +39,8 @@ def init_db(silo_dir):
     conn.commit()
 
     if not (silo_dir / "config.json").exists():
-        write_json(silo_dir / "config.json", {
-            "name": "silo-user",
-            "email": "user@silo.local",
-        })
+        from .models import CONFIG_DEFAULTS
+        write_json(silo_dir / "config.json", dict(CONFIG_DEFAULTS))
 
     if not (silo_dir / "HEAD").exists():
         (silo_dir / "HEAD").write_text("ref: refs/heads/main")
