@@ -7,7 +7,7 @@ from .vcs import branch, switch, reset
 from .tag import tag
 from .note import note
 from .config import config
-from .ops import snapshot, reinit, cleanup, freeze, unfreeze, info, gc, verify
+from .ops import snapshot, cleanup, freeze, unfreeze, info, gc, verify
 from .import_ import import_cmd
 from .bridge import bridge
 
@@ -27,7 +27,7 @@ def cli() -> None:
 
 
 for _cmd in [init, commit, status, log, diff, show, branch, switch, reset, amend,
-             tag, note, config, snapshot, reinit, cleanup, gc, verify,
+             tag, note, config, snapshot, cleanup, gc, verify,
              info, freeze, unfreeze, import_cmd, bridge]:
     cli.add_command(_cmd)
 

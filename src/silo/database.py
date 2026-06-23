@@ -273,6 +273,28 @@ def delete_branch(silo_dir: Path, name: str) -> bool:
     _, cur = get_head(silo_dir)
     if name == cur:
         return False
+
+    branch_commits: set[str] = walk_parents(silo_dir, p.read_text().strip())
+
+    other_branches: list[str] = [
+        b for b in list_branches(silo_dir) if b != name]
+    reachable: set[str] = set()
+    for b in other_branches:
+        bh: str | None = get_branch(silo_dir, b)
+        if bh:
+            reachable.update(walk_parents(silo_dir, bh))
+
+    conn: sqlite3.Connection = sqlite3.connect(str(silo_dir / "index.db"))
+    for h in branch_commits:
+        if h not in reachable:
+            cf: Path = silo_dir / "commits" / f"{h}.json"
+            if cf.exists():
+                cf.unlink()
+            conn.execute(
+                "DELETE FROM commits_index WHERE hash = ?", (h,))
+    conn.commit()
+    conn.close()
+
     p.unlink()
     return True
 
@@ -283,9 +305,25 @@ def rename_branch(silo_dir: Path, old_name: str, new_name: str) -> bool:
     if not old_p.exists() or new_p.exists():
         return False
     old_p.rename(new_p)
+
+    conn: sqlite3.Connection = sqlite3.connect(str(silo_dir / "index.db"))
+    commit_hash: str | None = get_branch(silo_dir, new_name)
+    if commit_hash:
+        for h in walk_parents(silo_dir, commit_hash):
+            c: Commit | None = load_commit(silo_dir, h)
+            if c and c.branch == old_name:
+                c.branch = new_name
+                (silo_dir / "commits" / f"{h}.json").write_text(c.to_json())
+                conn.execute(
+                    "UPDATE commits_index SET branch = ? WHERE hash = ?",
+                    (new_name, h),
+                )
+    conn.commit()
+    conn.close()
+
     _, cur = get_head(silo_dir)
     if old_name == cur:
-        set_head(silo_dir, new_p.read_text().strip(), new_name)
+        set_head(silo_dir, (silo_dir / "branches" / new_name).read_text().strip(), new_name)
     return True
 
 

@@ -1,18 +1,45 @@
 # Commands reference
 
+## Table of Contents
+
+- [init](#init)
+- [commit](#commit)
+- [status](#status)
+- [log](#log)
+- [diff](#diff)
+- [show](#show)
+- [branch](#branch)
+- [switch](#switch)
+- [reset](#reset)
+- [amend](#amend)
+- [tag](#tag)
+- [note](#note)
+- [config](#config)
+- [freeze / unfreeze](#freeze--unfreeze)
+- [snapshot](#snapshot)
+- [cleanup](#cleanup)
+- [gc](#gc)
+- [verify](#verify)
+- [info](#info)
+- [bridge](#bridge)
+- [import](#import)
+
 ## init
 
 ```
 silo init [directory]
 ```
 
-Create a new silo repository. If `directory` is omited, uses the current directory. Creates `.silo/` with `config.json`, `HEAD`, `index.db`, and storage directories.
+Create a new silo repository. If `directory` is omited, uses the current directory. Creates `.silo/` with `config.json`, `HEAD`, `index.db` (SQLite), and storage directories (objects, commits, branches, tags, notes, logs).
 
-On first init, Silo automatically creates an empty `.siloignore` file in the project root (if none exists) and appends `.silo/` to the project's `.gitignore` (if present). It then scans all project files and creates an initial commit with message `"silo: initial commit"`.
+On first init, Silo automatically:
+
+- Creates an empty `.siloignore` file in the project root (if none exists)
+- Appends `.silo/` to the project's `.gitignore` (if present)
+- Creates a `.silo/.gitignore` that marks `config.json` and `HEAD` as safe to commit to git
+- Scans all project files and creates an initial commit with message `"silo: initial commit"`
 
 The generated `.silo/config.json` includes all config keys with default values â€” edit them with `silo config set`.
-
----
 
 ## commit
 
@@ -20,18 +47,19 @@ The generated `.silo/config.json` includes all config keys with default values â
 silo commit "<message>" [--co <name>] [--noignore]
 ```
 
-Snapshot all tracked files with a message. The `--co` flag (repeatable) adds co-authors. `--noignore` bypasses ignore files and snapshots all files.
+Snapshot all tracked files with a message. Omitting `message` opens an interactive prompt.
+
+The `--co` / `-c` flag (repeatable) adds co-authors. `--noignore` bypasses ignore files and snapshots all files.
 
 Uses a single-pass scan: files are hashed and read in one pass. Excluded directories (`.silo/`, `.git/`, `__pycache__/`, and patterns from the active ignore file) are skipped before descending. By default `.siloignore` is used; set `use_gitignore=true` in config to use `.gitignore` instead.
 
 ```
-silo commit                         # prompts for message interactively
+silo commit                              # prompts for message
 silo commit "fix: handle edge case"
 silo commit "pair programming" --co "Bob <bob@x.com>"
 silo commit "full snapshot" --noignore
+silo commit "with co-authors" -c "Alice <a@x.com>" -c "Bob <b@x.com>"
 ```
-
----
 
 ## status
 
@@ -52,8 +80,6 @@ silo status
 silo status --noignore
 ```
 
----
-
 ## log
 
 ```
@@ -73,8 +99,6 @@ silo log -n 5                   # last 5 commits
 silo log --oneline -n 3 --author "Bob"
 ```
 
----
-
 ## diff
 
 ```
@@ -89,6 +113,8 @@ Show differences between commits or working tree:
 - `--stat`: file names only, no content
 - `--noignore`: bypass `.siloignore` when comparing working tree
 
+References accept full hashes, partial prefixes, `HEAD`, and `HEAD~N` syntax.
+
 ```
 silo diff
 silo diff --stat
@@ -97,23 +123,21 @@ silo diff abc1234 def5678
 silo diff --noignore
 ```
 
----
-
 ## show
 
 ```
 silo show [<ref>]
 ```
 
-Show commit details (hash, author, date, branch, message, attached tags and notes) and file changes (added/modified/deleted with full paths). Defaults to HEAD.
+Show commit details (hash, author, date, branch, message, co-authors, attached tags and notes) and file changes (added/modified/deleted with full paths). Defaults to HEAD.
+
+References accept full hashes, partial prefixes, `HEAD`, and `HEAD~N` syntax.
 
 ```
 silo show
 silo show abc1234
 silo show HEAD~2
 ```
-
----
 
 ## branch
 
@@ -134,15 +158,13 @@ silo branch delete old-feature
 silo branch rename feature-x feature-y
 ```
 
----
-
 ## switch
 
 ```
 silo switch [name]
 ```
 
-Switch to another branch. Restores files from the target commit's tree. Removes files tracked in current tree but absent in the target tree.
+Switch to another branch. Restores files from the target commit's tree. Removes files tracked in current tree but absent in the target tree. Prompts for confirmation if the working tree has uncommitted changes.
 
 Omitting `name` shows an interactive branch picker (excludes current branch).
 
@@ -150,8 +172,6 @@ Omitting `name` shows an interactive branch picker (excludes current branch).
 silo switch feature-x
 silo switch              # interactive picker
 ```
-
----
 
 ## reset
 
@@ -168,22 +188,23 @@ silo reset abc1234
 silo reset              # interactive picker
 ```
 
----
-
 ## amend
 
 ```
 silo amend "<message>" [<ref>]
 ```
 
-Edit a commit message. Defaults to HEAD. Updates tags and notes that pointed to the old hash.
+Edit a commit message. Omitting `message` opens an interactive prompt pre-filled with the current message. Defaults to HEAD if no ref given.
+
+Re-hashes the commit, replaces the old commit file, and updates any tags/notes that pointed to the old hash. Also updates the SQLite index and branch pointer.
+
+References accept full hashes, partial prefixes, `HEAD`, and `HEAD~N` syntax.
 
 ```
 silo amend "fix: typo in readme"
 silo amend "new message" abc1234
+silo amend                # prompts with current message as default
 ```
-
----
 
 ## tag
 
@@ -219,8 +240,6 @@ silo tag delete v1.0
 silo tag rename v1.0 v1.1
 ```
 
----
-
 ## note
 
 Manage notes. Subcommand-only (no `-d`/`-m` flags).
@@ -254,8 +273,6 @@ silo note delete <hash>
 silo note edit <hash> "updated text"
 ```
 
----
-
 ## config
 
 ```
@@ -265,13 +282,13 @@ silo config list
 
 Valid keys: `name`, `email`, `frozen`, `theme`, `use_gitignore`.
 
-| Key | Default | Description |
-| --- | ------- | ----------- |
-| `name` | `silo-user` | Author name for commits |
-| `email` | `user@silo.local` | Author email for commits |
-| `frozen` | `false` | Block new commits when `true` |
-| `theme` | `default` | Output color theme |
-| `use_gitignore` | `false` | Use `.gitignore` instead of `.siloignore` |
+| Key             | Default           | Description                               |
+| --------------- | ----------------- | ----------------------------------------- |
+| `name`          | `silo-user`       | Author name for commits                   |
+| `email`         | `user@silo.local` | Author email for commits                  |
+| `frozen`        | `false`           | Block new commits when `true`             |
+| `theme`         | `default`         | Output color theme                        |
+| `use_gitignore` | `false`           | Use `.gitignore` instead of `.siloignore` |
 
 When `use_gitignore` is `true`, Silo reads ignore patterns from `.gitignore` instead of `.siloignore`. Default: `false`.
 
@@ -283,8 +300,6 @@ silo config set use_gitignore true
 silo config list
 ```
 
----
-
 ## freeze / unfreeze
 
 ```
@@ -294,32 +309,18 @@ silo unfreeze        # unblock
 
 Sets `frozen=true` in local config. Commits and imports are rejected while frozen.
 
----
-
 ## snapshot
 
 ```
 silo snapshot [--noignore]
 ```
 
-Create a `.zip` archive of the project in the parent directory. Respects `.siloignore` by default. `--noignore` archives all files including ignored ones. Always excludes `.silo/` and `.git/`.
+Create a `.zip` archive of the project in the parent directory. Respects `.siloignore` by default. `--noignore` archives all files including ignored ones. Always excludes `.silo/` and `.git/`. The archive is named `<project-dir>_snapshot_<YYYYMMDD_HHMMSS>.zip`.
 
 ```
 silo snapshot
 silo snapshot --noignore
 ```
-
----
-
-## reinit
-
-```
-silo reinit
-```
-
-Erase all silo history and reinitialize. Removes all objects, commits, branches, tags, notes, and logs. Reinitializes `.silo/` as empty. Prompts for confirmation.
-
----
 
 ## cleanup
 
@@ -329,22 +330,19 @@ silo cleanup
 
 Remove orphaned objects (blobs not referenced by any commit) and stale tags/notes (pointing to non-existent commits).
 
----
-
 ## gc
 
 ```
 silo gc [-f]
 ```
 
-Garbage collect. Removes unreachable commits (not on any branch's parent chain and not referenced by tag/note), then runs cleanup for orphaned objects and stale notes/tags. `-f` skips confirmation.
+Garbage collect. Removes unreachable commits (not on any branch's parent chain and not referenced by tag/note), then runs cleanup for orphaned objects and stale notes/tags. `--force` / `-f` skips confirmation.
 
 ```
 silo gc
+silo gc --force
 silo gc -f
 ```
-
----
 
 ## verify
 
@@ -354,8 +352,6 @@ silo verify
 
 Check repository integrity. For every commit, verify that all blobs referenced in the tree exist in `.silo/objects/`.
 
----
-
 ## info
 
 ```
@@ -363,8 +359,6 @@ silo info
 ```
 
 Show repository statistics: commits, branches, current branch, tags, notes, object count, and total object storage size.
-
----
 
 ## bridge
 
@@ -376,8 +370,6 @@ silo bridge status     # check if hook is installed
 
 Bridge between git and silo. `enable` installs a git `post-commit` hook that runs `silo commit` after every git commit.
 
----
-
 ## import
 
 ```
@@ -387,8 +379,10 @@ silo import gh <repo>            # import from GitHub
 
 Import history from Git or GitHub.
 
-- `git`: reads the git repository at `<directory>` (defaults to `.`). Reads objects via `git ls-tree` and `git cat-file`.
+- `git`: reads the git repository at `<directory>` (defaults to `.`). Reads objects via `git ls-tree` and `git cat-file`, stores blobs as SHA256, creates commit JSONs with parent chains.
 - `gh`: clones `<repo>` from GitHub and imports its history. Supports `user/repo` shorthand and full URLs.
+
+Both subcommands preserve author, timestamp, and message from the original Git commits.
 
 ```
 silo import git

@@ -87,9 +87,10 @@ def init(directory: str) -> None:
     current_tree, contents = scan_tree_with_content(d, ignore)
     if current_tree:
         snapshot_to_objects(silo_dir, current_tree, contents)
-        first_hash = save_commit(silo_dir, Commit(
-            hash=hashlib.sha256(json.dumps(
-                current_tree, sort_keys=True).encode()).hexdigest(),
+        h: str = hashlib.sha256(json.dumps(
+            current_tree, sort_keys=True).encode()).hexdigest()
+        first_commit: Commit = Commit(
+            hash=h,
             tree=current_tree,
             parent=None,
             author=f"{cfg.name} <{cfg.email}>",
@@ -97,8 +98,11 @@ def init(directory: str) -> None:
             co_authors=[],
             timestamp=time.time(),
             branch="main",
-        ))
+        )
+        save_commit(silo_dir, first_commit)
+        set_head(silo_dir, h, "main")
         update_index(get_db(silo_dir), current_tree)
+        first_hash = h
 
     log_action(silo_dir, "init", f"dir={d}")
     ok(f"initialized repository in {silo_dir}")

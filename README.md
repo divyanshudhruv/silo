@@ -1,6 +1,5 @@
 <img alt="banner" src="./public/assets/banner.png" />
 
-
 <p align="center">
 A lightweight AI-first CLI tool that <code>snapshots</code> your working tree as <code>commits</code> with no server, no account, no setup - just <code>silo init</code> and you're versioning.
 <br><br>
@@ -19,7 +18,6 @@ A lightweight AI-first CLI tool that <code>snapshots</code> your working tree as
 
 > This repository uses **[Cummand](https://github.com/divyanshudhruv/cummand)** for `pip` previews.
 
-
 ## Table of Contents
 
 - [Why Silo?](#why-silo)
@@ -31,9 +29,9 @@ A lightweight AI-first CLI tool that <code>snapshots</code> your working tree as
 
 ## Why Silo?
 
-I work on <u>several projects</u>, and <mark>every time</mark> something works on one and something works on another. But I <u>**don't**</u> want to `git commit` because I want to keep the git history *clean*. Creating branches for <mark>every experiment</mark> is a ***hassle***. So I used to ~~copy the whole folder~~ and recreate a <u>new one</u> to work on the same thing - *save progress*, try **another approach**, <mark>repeat</mark> until I <u>find the best</u> solution.
+I work on <u>several projects</u>, and <mark>every time</mark> something works on one and something works on another. But I <u>**don't**</u> want to `git commit` because I want to keep the git history _clean_. Creating branches for <mark>every experiment</mark> is a **_hassle_**. So I used to ~~copy the whole folder~~ and recreate a <u>new one</u> to work on the same thing - _save progress_, try **another approach**, <mark>repeat</mark> until I <u>find the best</u> solution.
 
-That's why I made **Silo** - a *local-first* <u>version manager</u>. It's **AI-first**: unlike ~~Git~~, Silo has **simpler commands** and is designed for *rapid experimentation*, and <mark>any agent</mark> can understand the syntax ~~instantly~~ <u>quickly</u>. The best feature is **`silo snapshot`**, which creates a `.tar.gz` archive of your codebase *instantly* so <mark>every iteration</mark> is saved ***without polluting your git history***. <u>No more</u> `git stash`, <u>no more</u> `git branch experiment`, ~~no more~~ ~~manual folder backups~~ - just `silo init`, `silo commit`, `silo snapshot`, and <mark>you're done</mark>.
+That's why I made **Silo** - a _local-first_ <u>version manager</u>. It's **AI-first**: unlike ~~Git~~, Silo has **simpler commands** and is designed for _rapid experimentation_, and <mark>any agent</mark> can understand the syntax ~~instantly~~ <u>quickly</u>. The best feature is **`silo snapshot`**, which creates a `.zip` archive of your codebase _instantly_ so <mark>every iteration</mark> is saved **_without polluting your git history_**. <u>No more</u> `git stash`, <u>no more</u> `git branch experiment`, ~~no more~~ ~~manual folder backups~~ - just `silo init`, `silo commit`, `silo snapshot`, and <mark>you're done</mark>.
 
 ## Features
 
@@ -41,10 +39,17 @@ That's why I made **Silo** - a *local-first* <u>version manager</u>. It's **AI-f
 - **`📁 Snapshot-based`** - every commit is a full tree hash, no deltas or packfiles
 - **`🤙 Portable`** - `.silo/` lives in your project, move it anywhere
 - **`🌳 Branches`** - lightweight branch switching with working tree rewrite
-- **`🎟️ Tags & notes`** - attach to single commits or entire branches at once
+- **`🎟️ Tags & notes`** - attach to single commits or entire branches at once (shared `weld`/`unweld` system)
 - **`✨ Bridge mode`** - auto-silo on every `git commit` via git hooks
 - **`📥 Import`** - pull full history from existing Git repos or GitHub
-- **`⚡ Snapshots`** - archive whole project as `.tar.gz` with `silo snapshot`
+- **`⚡ Snapshots`** - archive whole project as `.zip` with `silo snapshot`
+- **`🧊 Freeze`** - block/unblock commits with `silo freeze`/`unfreeze`
+- **`🧹 GC & cleanup`** - remove unreachable commits and orphaned blobs
+- **`🔍 Verify`** - check repository integrity
+- **`📊 Info`** - repository statistics at a glance
+- **`👥 Co-authors`** - credit collaborators with `--co`
+- **`🎨 Themed output`** - colored terminal with `NO_COLOR` support
+- **`🔤 Typed internals`** - dataclass models (`Commit`, `Tag`, `Note`, `Config`) with full type annotations
 
 ## Installation
 
@@ -66,39 +71,33 @@ silo diff
 silo tag v1.0 --branch main
 ```
 
-| Command                             | What it does                                    |
-| ----------------------------------- | ----------------------------------------------- |
-| `silo init`                         | Create a new silo repo in the current directory |
-| `silo commit "<msg>"`               | Snapshot all files with a message               |
-| `silo log`                          | Browse commit history with tags & notes         |
-| `silo diff`                         | See working tree changes vs last commit         |
-| `silo show`                         | Full commit details including file changes      |
-| `silo branch create <name>`         | Create a new branch                             |
-| `silo switch <name>`                | Jump between branches                           |
-| `silo tag weld <name> --branch <b>` | Tag every commit on a branch                    |
-| `silo note add "<text>"`            | Annotate HEAD with a note                       |
-| `silo snapshot`                     | Archive project as `.tar.gz`                    |
+| Command                                 | What it does                                    |
+| --------------------------------------- | ----------------------------------------------- |
+| `silo init`                             | Create a new silo repo in the current directory |
+| `silo commit "<msg>" [--co]`            | Snapshot all files with a message + co-authors  |
+| `silo log [--oneline] [--graph]`        | Browse commit history with tags & notes         |
+| `silo diff [<ref1> [<ref2>]]`           | See working tree/commit differences             |
+| `silo show [<ref>]`                     | Full commit details including file changes      |
+| `silo amend "<msg>" [<ref>]`            | Edit a commit message                           |
+| `silo branch create/list/delete/rename` | Manage branches                                 |
+| `silo switch [<name>]`                  | Jump between branches (interactive if no arg)   |
+| `silo reset [<ref>]`                    | Move HEAD back, delete descendant commits       |
+| `silo tag create/weld/unweld/add`       | Manage tags (weld to commits or branches)       |
+| `silo note create/weld/unweld/add`      | Manage notes on commits or branches             |
+| `silo config set/list`                  | View/edit name, email, frozen, theme, ignore    |
+| `silo freeze / unfreeze`                | Block/unblock new commits                       |
+| `silo snapshot [--noignore]`            | Archive project as `.zip`                       |
+| `silo bridge enable/disable/status`     | Git hook integration (auto-silo on git commit)  |
+| `silo import git / gh`                  | Import history from Git repos or GitHub         |
+| `silo gc [-f]`                          | Garbage collect unreachable commits + orphans   |
+| `silo verify`                           | Check all blobs exist for every commit          |
+| `silo info`                             | Show repo statistics                            |
+| `silo cleanup`                          | Remove orphaned objects and stale tags/notes    |
+
 
 For the full reference, see **[docs/commands.md](docs/commands.md)**.
 
 ## How It Works
-
-Silo stores everything in `.silo/` inside your project:
-
-```
-.silo/
-  config.json      # name, email, settings
-  HEAD             # current branch pointer
-  index.db         # SQLite file index for fast status
-  objects/         # content-addressed blobs (sha256)
-  commits/         # commit metadata as JSON
-  branches/        # branch → commit mappings
-  tags/            # named references to commits
-  notes/           # freeform annotations
-  logs/            # audit trail
-```
-
-Every file is hashed once (sha256) and stored in `objects/`. Commits are lightweight JSON files pointing to a tree of those hashes. Status is instant - it compares current mtime/hashes against `index.db` rather than re-hashing everything.
 
 ### **Snapshot flow**
 
@@ -182,8 +181,13 @@ sequenceDiagram
 - **`.siloignore`** - add patterns to exclude files (same syntax as `.gitignore`)
 - **`use_gitignore`** - `silo config set use_gitignore true` uses `.gitignore` instead
 - **Bridge mode** - `silo bridge enable` installs a git `post-commit` hook; every `git commit` auto-creates a silo commit
-- **Tags on branches** - `silo tag v1.0 --branch main` attaches to every commit on `main` at once
-- **NO_COLOR** - set `NO_COLOR=1` to disable colored output
+- **Tags on branches** - `silo tag weld v1.0 --branch main` attaches to every commit on `main` at once
+- **`--co` / `-c`** - repeatable co-author flag on `silo commit` (e.g., `silo commit "msg" --co "Alice <a@x.com>"`)
+- **`--noignore`** - bypass `.siloignore` on `commit`, `status`, `diff`, and `snapshot`
+- **`HEAD~N` ref syntax** - reference ancestor commits: `silo diff HEAD~2`, `silo show HEAD~1`
+- **Interactive prompts** - omit a message to be prompted (`silo commit`, `silo amend`); omit a branch name for an interactive picker (`silo switch`, `silo reset`)
+- **`NO_COLOR`** - set `NO_COLOR=1` to disable colored output
+- **`config.json` + `HEAD`** - these two files are safe to commit to your git repo (`.silo/.gitignore` is set up for this)
 
 ## Development Setup
 
@@ -198,8 +202,10 @@ python -m venv .venv
 pip install -e .
 ```
 
-Then run the demo suite:
+Then run the integration test suite:
 
 ```bash
 python tests/run_commands.py
 ```
+
+The test script creates a temp sandbox, exercises every silo command, and reports pass/fail per step.

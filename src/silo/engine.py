@@ -7,7 +7,7 @@ from .utils import walk_files, ensure_dirs
 
 
 def scan_tree(project_dir: Path, ignore_patterns: list[str] | None = None) -> dict[str, str]:
-    tree: dict[str, str]; _: dict[str, bytes] = scan_tree_with_content(project_dir, ignore_patterns)
+    tree, _ = scan_tree_with_content(project_dir, ignore_patterns)
     return tree
 
 

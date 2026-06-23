@@ -1,19 +1,15 @@
-import json
 import time
-import hashlib
-import shutil
 import zipfile
-import sqlite3
 from pathlib import Path
 
 import click
 
-from ..engine import load_blob, scan_tree_with_content, snapshot_to_objects
+from ..engine import load_blob
 from ..database import (
-    init_db, list_commits, list_commits_meta, list_notes,
+    list_commits, list_commits_meta, list_notes,
     log_action, get_config, save_config, list_tags, list_branches,
     get_branch, load_tag, save_tag, delete_tag, walk_parents, get_head,
-    load_note, load_commit, get_db, update_index, save_commit, set_head,
+    load_note, load_commit,
     resolve_tag_commits, resolve_note_commits,
 )
 from ..models import Commit, Tag, Note, Config
@@ -103,56 +99,6 @@ def snapshot(noignore):
 
     log_action(silo_dir, "snapshot", str(dest))
     ok(f"snapshot saved to {t(f'{dest}.zip', 'file')}")
-
-
-@click.command("reinit", help="Erase all silo history and reinitialize")
-def reinit():
-    silo_dir: Path | None = require_silo()
-    if not silo_dir:
-        return
-
-    if click.confirm(t("silo: this will erase all history. continue?", "warn")):
-        for d in ["objects", "commits", "branches", "tags", "notes", "logs"]:
-            p: Path = silo_dir / d
-            if p.exists():
-                shutil.rmtree(p)
-        db: Path = silo_dir / "index.db"
-        if db.exists():
-            db.unlink()
-        init_db(silo_dir)
-
-        project_dir: Path = silo_dir.parent
-        cfg: Config = get_config(silo_dir)
-        ignore: list[str] | None = load_ignore_patterns(silo_dir)
-        current_tree, contents = scan_tree_with_content(
-            project_dir, ignore)
-        if current_tree:
-            snapshot_to_objects(silo_dir, current_tree, contents)
-            commit_data: dict[str, str | float | list[str]] = {
-                "tree": current_tree,
-                "parent": None,
-                "author": f"{cfg.name} <{cfg.email}>",
-                "message": "silo: initial commit",
-                "co_authors": [],
-                "timestamp": time.time(),
-                "branch": "main",
-            }
-            raw: bytes = json.dumps(commit_data, sort_keys=True).encode()
-            h: str = hashlib.sha256(raw).hexdigest()
-            commit_obj: Commit = Commit(hash=h, **commit_data)
-            save_commit(silo_dir, commit_obj)
-            set_head(silo_dir, h, "main")
-            conn: sqlite3.Connection | None = get_db(silo_dir)
-            if conn is None:
-                err("failed to get database connection")
-                return
-            update_index(conn, current_tree)
-            conn.close()
-            log_action(
-                silo_dir, "commit", f"[{h[:8]}] silo: initial commit ({len(current_tree)} files)")
-
-        log_action(silo_dir, "reinit", "all history reinitialized")
-        ok("history reinitialized")
 
 
 @click.command(help="Remove orphaned objects and stale notes/tags")

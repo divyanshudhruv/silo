@@ -69,7 +69,7 @@ def branch_delete(name: str) -> None:
     if not silo_dir:
         return
 
-    if delete_branch(silo_dir, name) is not None:
+    if delete_branch(silo_dir, name):
         log_action(silo_dir, "branch", f"deleted '{name}'")
         ok(f"deleted branch '{t(name, 'branch')}'")
     else:
@@ -84,7 +84,7 @@ def branch_rename(old: str, new: str) -> None:
     if not silo_dir:
         return
 
-    if rename_branch(silo_dir, old, new) is not None:
+    if rename_branch(silo_dir, old, new):
         log_action(silo_dir, "branch", f"renamed '{old}' -> '{new}'")
         ok(f"renamed branch '{t(old, 'branch')}' -> '{t(new, 'branch')}'")
     else:

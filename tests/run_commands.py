@@ -16,6 +16,8 @@ STEPS: list[tuple[str, str]] = [
     ("commit first",         "echo hello > a.txt & silo commit first"),
     ("commit second",        "echo world > b.txt & silo commit second"),
     ("commit third",         "echo foo > c.txt & silo commit third"),
+    ("commit --co",          "echo co > co.txt & silo commit \"co-authored\" --co \"Alice <alice@x.com>\""),
+    ("status --noignore",    "silo status --noignore"),
 
     # ── log ──
     ("log --oneline",        "silo log --oneline"),
@@ -32,21 +34,31 @@ STEPS: list[tuple[str, str]] = [
     # ── diff ──
     ("diff",                 "silo diff"),
     ("diff --stat",          "silo diff --stat"),
+    ("diff HEAD~1",          "silo diff HEAD~1"),
+    ("diff commits",         "silo diff HEAD~1 HEAD~2"),
+    ("diff --noignore",      "silo diff --noignore"),
 
     # ── amend ──
     ("amend",                "silo amend first-edited"),
+    ("amend <hash>",         "for /f %a in ('silo log --oneline') do silo amend \"edited-again\" %a & exit /b"),
 
     # ── branch ──
     ("branch create dev",    "silo branch create dev"),
+    ("branch create at ref", "silo branch create bugfix HEAD~1"),
     ("branch list",          "silo branch list"),
     ("switch dev",           "silo switch dev"),
     ("commit on dev",        "echo dev-work > dev.txt & silo commit dev-work"),
     ("switch main",          "silo switch main"),
     ("branch rename",        "silo branch rename dev feature"),
     ("branch delete",        "silo branch delete feature"),
+    ("branch list after",    "silo branch list"),
 
     # ── note ──
     ("note create",          "silo note create research-needed"),
+    ("note weld to HEAD",
+     "for /f %a in ('silo note list') do silo note weld %a HEAD & exit /b"),
+    ("note unweld from HEAD",
+     "for /f %a in ('silo note list') do silo note unweld %a HEAD & exit /b"),
     ("note add",             "silo note add quick-thought"),
     ("note list",            "silo note list"),
     ("note show",            "for /f %a in ('silo note list') do silo note show %a & exit /b"),
@@ -70,12 +82,15 @@ STEPS: list[tuple[str, str]] = [
 
     # ── snapshot ──
     ("snapshot",             "silo snapshot"),
+    ("snapshot --noignore",  "silo snapshot --noignore"),
 
     # ── config ──
     ("config set",           "silo config set use_gitignore true"),
     ("config list",          "silo config list"),
     ("config set theme",     "silo config set theme dark"),
     ("config list",          "silo config list"),
+    ("config set name",      "silo config set name \"Test User\""),
+    ("config set email",     "silo config set email \"test@test.com\""),
 
     # ── info / verify / cleanup / gc ──
     ("info",                 "silo info"),
@@ -90,8 +105,15 @@ STEPS: list[tuple[str, str]] = [
     # ── bridge ──
     ("bridge status",        "silo bridge status"),
 
-    # ── reinit ──
-    ("reinit",               "echo yes | silo reinit"),
+    # ── reset (on throwaway branch) ──
+    ("branch create reset-test", "silo branch create reset-test"),
+    ("switch reset-test",        "silo switch reset-test"),
+    ("commit pre-reset",         "echo pre-reset > reset.txt & silo commit \"pre-reset\""),
+    ("reset HEAD~1",             "silo reset HEAD~1"),
+    ("log after reset",          "silo log --oneline"),
+    ("switch main",              "echo y | silo switch main"),
+    ("branch delete reset-test", "silo branch delete reset-test"),
+
 ]
 
 # ── Nothing to edit below this line ──────────────────────────────────────────
