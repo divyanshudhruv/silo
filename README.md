@@ -187,7 +187,7 @@ sequenceDiagram
 - **`HEAD~N` ref syntax** - reference ancestor commits: `silo diff HEAD~2`, `silo show HEAD~1`
 - **Interactive prompts** - omit a message to be prompted (`silo commit`, `silo amend`); omit a branch name for an interactive picker (`silo switch`, `silo reset`)
 - **`NO_COLOR`** - set `NO_COLOR=1` to disable colored output
-- **`config.json` + `HEAD`** - these two files are safe to commit to your git repo (`.silo/.gitignore` is set up for this)
+- **`HEAD` only** - the `HEAD` file is safe to commit to your git repo (`.silo/.gitignore` + project `.gitignore` are set up for this)
 
 ## Development Setup
 

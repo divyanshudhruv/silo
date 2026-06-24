@@ -48,6 +48,32 @@ def _annotations(silo_dir: Path) -> tuple[dict[str, list[str]], dict[str, list[s
     return tag_map, note_map
 
 
+def setup_gitignore(silo_dir: Path, dir: Path) -> bool:
+    gi: Path = silo_dir / ".gitignore"
+    gi.write_text(
+        "# Silo runtime data - safe to ignore\n"
+        "/*\n"
+        "!/HEAD\n"
+    )
+
+    created_siloignore = False
+    siloignore_path: Path = dir / ".siloignore"
+    if not siloignore_path.exists():
+        siloignore_path.write_text("")
+        created_siloignore = True
+
+    gitignore_path: Path = dir / ".gitignore"
+    if not gitignore_path.exists():
+        gitignore_path.write_text("# Silo\n.silo/*\n!.silo/HEAD\n")
+    else:
+        content: str = gitignore_path.read_text()
+        if ".silo" not in content:
+            with gitignore_path.open("a") as f:
+                f.write("\n# Silo\n.silo/*\n!.silo/HEAD\n")
+
+    return created_siloignore
+
+
 @click.command(help="Initialize a new silo repository in a directory")
 @click.argument("directory", default=".")
 def init(directory: str) -> None:
@@ -60,26 +86,7 @@ def init(directory: str) -> None:
     conn: sqlite3.Connection = init_db(silo_dir)
     conn.close()
 
-    gi: Path = silo_dir / ".gitignore"
-    gi.write_text(
-        "# Silo runtime data — safe to ignore\n"
-        "/*\n"
-        "!/config.json\n"
-        "!/HEAD\n"
-    )
-
-    created_siloignore = False
-    siloignore_path: Path = d / ".siloignore"
-    if not siloignore_path.exists():
-        siloignore_path.write_text("")
-        created_siloignore = True
-
-    gitignore_path: Path = d / ".gitignore"
-    if gitignore_path.exists():
-        content: str = gitignore_path.read_text()
-        if ".silo" not in content:
-            with gitignore_path.open("a") as f:
-                f.write("\n# Silo\n.silo/\n")
+    created_siloignore = setup_gitignore(silo_dir, d)
 
     first_hash: str | None = None
     cfg: Config = get_config(silo_dir)
@@ -107,7 +114,7 @@ def init(directory: str) -> None:
     log_action(silo_dir, "init", f"dir={d}")
     ok(f"initialized repository in {silo_dir}")
     click.echo(
-        f"  {t('config.json', 'file')} and {t('HEAD', 'file')} are safe to commit to git")
+        f"  {t('HEAD', 'file')} is safe to commit to git")
     if created_siloignore:
         click.echo(
             f"  created {t('.siloignore', 'file')} — add patterns to exclude files")

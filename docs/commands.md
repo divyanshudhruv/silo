@@ -35,8 +35,8 @@ Create a new silo repository. If `directory` is omited, uses the current directo
 On first init, Silo automatically:
 
 - Creates an empty `.siloignore` file in the project root (if none exists)
-- Appends `.silo/` to the project's `.gitignore` (if present)
-- Creates a `.silo/.gitignore` that marks `config.json` and `HEAD` as safe to commit to git
+- Appends `.silo/*` and `!.silo/HEAD` to the project's `.gitignore` (creates one if none exists)
+- Creates a `.silo/.gitignore` that marks `HEAD` as safe to commit to git
 - Scans all project files and creates an initial commit with message `"silo: initial commit"`
 
 The generated `.silo/config.json` includes all config keys with default values — edit them with `silo config set`.

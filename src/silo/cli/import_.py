@@ -18,6 +18,7 @@ from ..database import (
 from ..models import Commit, Config
 from ..theme import ok, err, t
 from ._common import require_silo, ColorGroup
+from .core import setup_gitignore
 
 
 def _git_tree(git_path: Path, commit_hash: str) -> dict[str, str] | None:
@@ -119,6 +120,7 @@ def git_cmd(git_dir: str) -> None:
         err("failed to initialize database")
         return
     conn.close()
+    setup_gitignore(silo_dir, git_path)
     log_action(silo_dir, "import", f"from git: {git_path}")
     ok(f"importing {git_path} ...")
 

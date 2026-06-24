@@ -14,5 +14,7 @@ BUILD_PLAN.md
 *.plan.md
 TODO.md
 
+
 # Silo
-.silo/
+.silo/*
+!.silo/HEAD
